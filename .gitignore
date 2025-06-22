@@ -69,3 +69,4 @@ FunAudioLLM.github.io
 /add
 /Miniforge3-25.3.0-3-Linux-x86_64.sh
 /CosyVoice
+!/build.sh
