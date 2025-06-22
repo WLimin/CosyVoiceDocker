@@ -8,6 +8,7 @@ tensorrt-cu12-libs
 conformer==0.3.2
 deepspeed==0.14.2; sys_platform == 'linux'
 diffusers==0.29.0
+funasr
 gdown==5.1.0
 gradio==5.4.0
 grpcio==1.57.0
@@ -29,7 +30,8 @@ onnxruntime-gpu
 #openai-whisper==20231117
 openai-whisper
 protobuf==4.25
-pyarrow==18.1.0
+#pyarrow==18.1.0
+pyarrow
 pydantic==2.7.0
 pyworld==0.3.4
 rich==13.7.1
