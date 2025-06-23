@@ -1,4 +1,11 @@
-FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04 AS condabuilder
+#FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04 AS condabuilder
+FROM pytorch/pytorch:2.7.0-cuda12.8-cudnn9-runtime AS condabuilder
+#python 3.11
+
+#FROM ${BASE_IMAGE}
+ARG PYTORCH_VERSION=v2.7.0
+ARG UID=1000
+ARG USER_NAME=webui
 
 ARG VENV_NAME="cosyvoice"
 ENV VENV=$VENV_NAME
@@ -25,15 +32,15 @@ FROM condabuilder AS cosyvoicebuilder
 # RUN wget --quiet https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -O ~/miniforge.sh && \
 # https://mirrors.tuna.tsinghua.edu.cn/github-release/conda-forge/miniforge/LatestRelease/Miniforge3-25.3.0-3-Linux-x86_64.sh
 # COPY ./miniforge.sh /tmp/miniforge.sh
-COPY ./Miniforge3-25.3.0-3-Linux-x86_64.sh /tmp/miniforge.sh
+#COPY ./Miniforge3-25.3.0-3-Linux-x86_64.sh /tmp/miniforge.sh
 
-RUN /bin/bash /tmp/miniforge.sh -b -p /opt/conda && \
-    rm /tmp/miniforge.sh && \
-    ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
-    echo "source /opt/conda/etc/profile.d/conda.sh" >> /opt/nvidia/entrypoint.d/100.conda.sh && \
-    echo "conda activate ${VENV}" >> /opt/nvidia/entrypoint.d/110.conda_default_env.sh && \
-    echo "source /opt/conda/etc/profile.d/conda.sh" >> ~/.bashrc && \
-    echo "conda activate ${VENV}" >> $HOME/.bashrc
+#RUN /bin/bash /tmp/miniforge.sh -b -p /opt/conda && \
+#    rm /tmp/miniforge.sh && \
+#    ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
+#    echo "source /opt/conda/etc/profile.d/conda.sh" >> /opt/nvidia/entrypoint.d/100.conda.sh && \
+#    echo "conda activate ${VENV}" >> /opt/nvidia/entrypoint.d/110.conda_default_env.sh && \
+#    echo "source /opt/conda/etc/profile.d/conda.sh" >> ~/.bashrc && \
+#    echo "conda activate ${VENV}" >> $HOME/.bashrc
 
 ENV PATH=/opt/conda/condabin:$PATH
 
@@ -43,7 +50,7 @@ RUN conda config --add channels conda-forge && \
 # ~conda
 # ==================================================================
 
-RUN conda create -y -n ${VENV} python=3.10
+#RUN conda create -y -n ${VENV} python=3.10
 ENV CONDA_DEFAULT_ENV=${VENV}
 ENV PATH=/opt/conda/bin:/opt/conda/envs/${VENV}/bin:$PATH
 
@@ -70,9 +77,17 @@ COPY --from=cosyvoicebuilder /opt/conda/ /opt/conda/
 COPY --from=cosyvoicebuilder /opt/nvidia/ /opt/nvidia/
 COPY --from=cosyvoicebuilder /workspace/CosyVoice/ /workspace/CosyVoice/
 
-COPY ./docker/api.py /workspace/CosyVoice/
+COPY ./docker/openai-api.py /workspace/CosyVoice/
 COPY ./docker/entrypoint.sh /workspace/CosyVoice/
 COPY ./docker/webui.py /workspace/CosyVoice/
+
+
+USER ${USER_NAME}
+ENV HOME=/home/${USER_NAME}
+WORKDIR $HOME
+
+RUN /opt/conda/bin/python3.11 -m venv  --system-site-packages ${VENV} \
+ && echo "source $HOME/${VENV}/bin/activate" >> ${HOME}/.bashrc && source $HOME/${VENV}/bin/activate
 
 RUN ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
     echo "source /opt/conda/etc/profile.d/conda.sh" >> ~/.bashrc && \
@@ -90,4 +105,4 @@ ENV MODEL_PATH=${MODEL_PATH_ARG}
 ENV HF_ENDPOINT=https://hf-mirror.com
 ENTRYPOINT ["./entrypoint.sh"]
 #ENTRYPOINT ["/opt/conda/envs/cosyvoice/bin/python3", "webui.py", "--port 8000", "--model_dir ${MODEL_PATH}" ]
-#CMD ["/opt/conda/envs/cosyvoice/bin/python3", "api.py"]
+#CMD ["/opt/conda/envs/cosyvoice/bin/python3", "openai-api.py"]

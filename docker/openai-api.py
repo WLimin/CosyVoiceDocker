@@ -14,7 +14,7 @@ logs_dir=Path(f'{root_dir}/logs').as_posix()
 os.makedirs(tmp_dir,exist_ok=True)
 os.makedirs(logs_dir,exist_ok=True)
 
-from flask import Flask, request, render_template, jsonify,  send_from_directory,send_file,Response, stream_with_context,make_response,send_file
+from flask import Flask, request, render_template, jsonify,  send_from_directory,send_file,Response, stream_with_context,make_response
 import logging
 from logging.handlers import RotatingFileHandler
 import subprocess
@@ -28,6 +28,8 @@ from cosyvoice.utils.common import set_all_random_seed
 import torchaudio,torch
 from pathlib import Path
 import base64
+
+from flask_cors import CORS
 
 # 下载模型(Dockerfile 已经完成)
 #from modelscope import snapshot_download
@@ -62,10 +64,22 @@ file_handler.setFormatter(formatter)
 # 将文件处理器添加到日志记录器中
 app.logger.addHandler(file_handler)
 
+CORS(app, cors_allowed_origins="*")
+# CORS(app, supports_credentials=True)
+
 sft_model = None
-tts_model = None
+#tts_model = None
+tts_model=CosyVoice2('pretrained_models/CosyVoice2-0.5B', load_jit=False, fp16=True, load_trt=False)
+default_voices = tts_model.list_available_spks()
 
 VOICE_LIST=['中文女', '中文男', '日语男', '粤语女', '英文女', '英文男', '韩语女']
+spk_custom = []
+for name in os.listdir(f"{ROOT_DIR}/voices/"):
+    print(name.replace(".pt", ""))
+    spk_custom.append(name.replace(".pt", ""))
+
+print("默认音色", default_voices)
+print("自定义音色", spk_custom)
 
 seed = 0  # random.randint(1, 100000000)
 
@@ -213,6 +227,7 @@ def batch(tts_type,outname,params):
 # 单纯文字合成语音
 @app.route('/tts', methods=['GET', 'POST'])
 def tts():
+    """根据内置角色合成文字"""
     params=get_params(request)
     if not params['text']:
         return make_response(jsonify({"code":1,"msg":'缺少待合成的文本'}), 500)  # 设置状态码为500
@@ -245,6 +260,7 @@ def clone():
         return make_response(jsonify({"code":8,"msg":str(e)}), 500)  # 设置状态码为500
     else:
         return send_file(outname, mimetype='audio/x-wav')
+
 @app.route('/clone_eq', methods=['GET', 'POST'])
 def clone_eq():
 
@@ -262,9 +278,25 @@ def clone_eq():
     else:
         return send_file(outname, mimetype='audio/x-wav')
 
+@app.route("/speakers", methods=['GET', 'POST'])
 @app.route('/v1/audio/voices', methods=['GET', 'POST'])
 def get_speakers():
-    return {"available_speakers": list(VOICE_LIST)}
+    """获取角色名称"""
+    voices = []
+    speakers = VOICE_LIST
+
+    for x in default_voices:
+        voices.append({"name":x,"voice_id":x})
+        speakers.append(x)
+
+    for name in os.listdir("voices"):
+        name = name.replace(".pt","")
+        voices.append({"name":name,"voice_id":name})
+        speakers.append(name)
+
+#    response = app.response_class(response=json.dumps(voices), status=200, mimetype='application/json')
+#    return response
+    return {"available_speakers": list(speakers)}
 
 @app.route('/v1/audio/speech', methods=['POST'])
 def audio_speech():
