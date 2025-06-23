@@ -11,6 +11,7 @@ else:
 sys.path.append(f'{root_dir}/third_party/Matcha-TTS')
 tmp_dir=Path(f'{root_dir}/tmp').as_posix()
 logs_dir=Path(f'{root_dir}/logs').as_posix()
+voices_dir=Path(f'{root_dir}/pretrained_models/voices').as_posix()
 os.makedirs(tmp_dir,exist_ok=True)
 os.makedirs(logs_dir,exist_ok=True)
 
@@ -69,12 +70,15 @@ CORS(app, cors_allowed_origins="*")
 
 sft_model = None
 #tts_model = None
+#建立模型实例
 tts_model=CosyVoice2('pretrained_models/CosyVoice2-0.5B', load_jit=False, fp16=True, load_trt=False)
+#默认模型音色
 default_voices = tts_model.list_available_spks()
-
+#中文模型音色列表，可能和default_voices重复
 VOICE_LIST=['中文女', '中文男', '日语男', '粤语女', '英文女', '英文男', '韩语女']
+# 自定义音色库，存放在voices_dir
 spk_custom = []
-for name in os.listdir(f"{ROOT_DIR}/voices/"):
+for name in os.listdir(f"{voices_dir}/"):
     print(name.replace(".pt", ""))
     spk_custom.append(name.replace(".pt", ""))
 
