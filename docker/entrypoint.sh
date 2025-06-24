@@ -9,7 +9,7 @@ fi
 
 case ${CAPABILITIES} in
     api)
-        exec /opt/conda/envs/${VENV}/bin/python3 api.py
+        exec /opt/conda/envs/${VENV}/bin/python3 openai-api.py
     ;;
     web)
         exec /opt/conda/envs/${VENV}/bin/python3 webui.py --port 8080 --model_dir ${MODEL_PATH} 
@@ -17,7 +17,7 @@ case ${CAPABILITIES} in
     *)
         #all
         /opt/conda/envs/${VENV}/bin/python3 webui.py --port 8080 --model_dir ${MODEL_PATH} &
-        exec /opt/conda/envs/${VENV}/bin/python3 api.py
+        exec /opt/conda/envs/${VENV}/bin/python3 openai-api.py
     ;;
 esac
 
