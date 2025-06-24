@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get clean && \
     git lfs install
 
-FROM condabuilder AS cosyvoicebuilder
+#FROM condabuilder AS cosyvoicebuilder
 # ==================================================================
 # conda install and conda forge channel as default
 # ------------------------------------------------------------------
@@ -42,10 +42,20 @@ FROM condabuilder AS cosyvoicebuilder
 #    echo "source /opt/conda/etc/profile.d/conda.sh" >> ~/.bashrc && \
 #    echo "conda activate ${VENV}" >> $HOME/.bashrc
 
-ENV PATH=/opt/conda/condabin:$PATH
+# ENV PATH=/opt/conda/condabin:$PATH
 
-RUN conda config --add channels conda-forge && \
-    conda config --set channel_priority strict
+    # 目的是解决磁盘缓存出现"应当用'找不到字段错误
+#RUN conda config --set channel_priority strict && \
+#  /opt/conda/bin/python3.11 -m venv  --system-site-packages ${VENV} 
+#RUN  ls -lah  /opt/conda/bin 
+RUN      conda install libsqlite=3.48.0 pynini  && \
+   python -m pip config set global.index-url https://mirrors.aliyun.com/pypi/simple && \
+  git config --global --add safe.directory '*' \
+  && useradd -l -u $UID -U -m -s /bin/bash ${USER_NAME}
+  
+# && \
+#  echo "source $HOME/${VENV}/bin/activate" >> ${HOME}/.bashrc && source $HOME/${VENV}/bin/activate
+
 # ------------------------------------------------------------------
 # ~conda
 # ==================================================================
@@ -58,7 +68,7 @@ WORKDIR /workspace
 ENV PYTHONPATH="/workspace/CosyVoice:/workspace/CosyVoice/third_party/Matcha-TTS"
 
 # RUN conda init 
-RUN conda activate ${VENV} && conda install -y -c conda-forge pynini
+#RUN conda activate ${VENV} && conda install -y -c conda-forge pynini
 #pynini==2.1.5
 
 # RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git
@@ -67,15 +77,15 @@ COPY ./docker/requirements.txt /workspace/CosyVoice/
 COPY ./add/ttsfrd*.whl /tmp/
 # COPY ./pretrained_models/CosyVoice2-0.5B /workspace/CosyVoice/pretrained_models/CosyVoice2-0.5B/
 
-RUN conda activate ${VENV} && cd CosyVoice && \
-    pip install -i https://mirrors.ustc.edu.cn/pypi/simple -i https://mirrors.aliyun.com/pypi/simple -r requirements.txt  \
-    && pip install -i https://mirrors.ustc.edu.cn/pypi/simple /tmp/ttsfrd_dependency-0.1-py3-none-any.whl /tmp/ttsfrd-0.4.2-cp310-cp310-linux_x86_64.whl \
+RUN --mount=type=cache,target=/root/.cache/pip  \
+   cd CosyVoice && python -m pip install  --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple -r requirements.txt  \
+    && pip install -i https://mirrors.aliyun.com/pypi/simple /tmp/ttsfrd_dependency-0.1-py3-none-any.whl /tmp/ttsfrd-0.4.2-cp310-cp310-linux_x86_64.whl \
     && rm /tmp/ttsfrd*.whl && rm -rf /root/.cache/pip && conda clean --all
 
-FROM condabuilder AS fine
-COPY --from=cosyvoicebuilder /opt/conda/ /opt/conda/
-COPY --from=cosyvoicebuilder /opt/nvidia/ /opt/nvidia/
-COPY --from=cosyvoicebuilder /workspace/CosyVoice/ /workspace/CosyVoice/
+#FROM condabuilder AS fine
+#COPY --from=cosyvoicebuilder /opt/conda/ /opt/conda/
+#COPY --from=cosyvoicebuilder /opt/nvidia/ /opt/nvidia/
+#COPY --from=cosyvoicebuilder /workspace/CosyVoice/ /workspace/CosyVoice/
 
 COPY ./docker/openai-api.py /workspace/CosyVoice/
 COPY ./docker/entrypoint.sh /workspace/CosyVoice/
