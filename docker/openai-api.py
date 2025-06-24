@@ -1,45 +1,49 @@
-import os,time,sys
+from flask import Flask, request, render_template, jsonify,  send_from_directory, send_file, Response, stream_with_context, make_response
+import torch
+import torchaudio
+from flask_cors import CORS
+import base64
+from cosyvoice.utils.common import set_all_random_seed
+from cosyvoice.utils.file_utils import load_wav
+from cosyvoice.cli.cosyvoice import CosyVoice, CosyVoice2
+import random
+import datetime
+import shutil
+import subprocess
+from logging.handlers import RotatingFileHandler
+import logging
+import os
+import time
+import sys
 from pathlib import Path
-root_dir=Path(__file__).parent.as_posix()
+root_dir = Path(__file__).parent.as_posix()
 
 # ffmpeg
 if sys.platform == 'win32':
-    os.environ['PATH'] = root_dir + f';{root_dir}\\ffmpeg;' + os.environ['PATH']+f';{root_dir}/third_party/Matcha-TTS'
+    os.environ['PATH'] = root_dir + f';{root_dir}\\ffmpeg;' + \
+        os.environ['PATH']+f';{root_dir}/third_party/Matcha-TTS'
 else:
     os.environ['PATH'] = root_dir + f':{root_dir}/ffmpeg:' + os.environ['PATH']
-    os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH', '') + ':third_party/Matcha-TTS'
+    os.environ['PYTHONPATH'] = os.environ.get(
+        'PYTHONPATH', '') + ':third_party/Matcha-TTS'
 sys.path.append(f'{root_dir}/third_party/Matcha-TTS')
-tmp_dir=Path(f'{root_dir}/tmp').as_posix()
-logs_dir=Path(f'{root_dir}/logs').as_posix()
-voices_dir=Path(f'{root_dir}/pretrained_models/voices').as_posix()
-os.makedirs(tmp_dir,exist_ok=True)
-os.makedirs(logs_dir,exist_ok=True)
 
-from flask import Flask, request, render_template, jsonify,  send_from_directory,send_file,Response, stream_with_context,make_response
-import logging
-from logging.handlers import RotatingFileHandler
-import subprocess
-import shutil
-import datetime
-import random
-from cosyvoice.cli.cosyvoice import CosyVoice, CosyVoice2
-from cosyvoice.utils.file_utils import load_wav
-from cosyvoice.utils.common import set_all_random_seed
+model_dir = Path(f'{root_dir}/pretrained_models/CosyVoice2-0.5B').as_posix()
+tmp_dir = Path(f'{root_dir}/tmp').as_posix()
+logs_dir = Path(f'{root_dir}/logs').as_posix()
+voices_dir = Path(f'{root_dir}/pretrained_models/voices').as_posix()
+os.makedirs(tmp_dir, exist_ok=True)
+os.makedirs(logs_dir, exist_ok=True)
 
-import torchaudio,torch
-from pathlib import Path
-import base64
-
-from flask_cors import CORS
 
 # 下载模型(Dockerfile 已经完成)
-#from modelscope import snapshot_download
-#snapshot_download('iic/CosyVoice2-0.5B', local_dir='pretrained_models/CosyVoice2-0.5B')
-#snapshot_download('iic/CosyVoice-300M-SFT', local_dir='pretrained_models/CosyVoice-300M-SFT')
+# from modelscope import snapshot_download
+# snapshot_download('iic/CosyVoice2-0.5B', local_dir='pretrained_models/CosyVoice2-0.5B')
+# snapshot_download('iic/CosyVoice-300M-SFT', local_dir='pretrained_models/CosyVoice-300M-SFT')
 
-'''
-app logs
-'''
+#
+# app logs
+#
 # 配置日志
 # 禁用 Werkzeug 默认的日志处理器
 log = logging.getLogger('werkzeug')
@@ -50,15 +54,15 @@ root_log = logging.getLogger()  # Flask的根日志记录器
 root_log.handlers = []
 root_log.setLevel(logging.WARNING)
 
-app = Flask(__name__,
-    static_folder=root_dir+'/tmp',
-    static_url_path='/tmp')
+app = Flask(__name__, static_folder=tmp_dir, static_url_path='/tmp')
 
 app.logger.setLevel(logging.WARNING)
 # 创建 RotatingFileHandler 对象，设置写入的文件路径和大小限制
-file_handler = RotatingFileHandler(logs_dir+f'/{datetime.datetime.now().strftime("%Y%m%d")}.log', maxBytes=1024 * 1024, backupCount=5)
+file_handler = RotatingFileHandler(
+    logs_dir+f'/{datetime.datetime.now().strftime("%Y%m%d")}.log', maxBytes=1024 * 1024, backupCount=5)
 # 创建日志的格式
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 # 设置文件处理器的级别和格式
 file_handler.setLevel(logging.WARNING)
 file_handler.setFormatter(formatter)
@@ -69,13 +73,34 @@ CORS(app, cors_allowed_origins="*")
 # CORS(app, supports_credentials=True)
 
 sft_model = None
-#tts_model = None
-#建立模型实例
-tts_model=CosyVoice2('pretrained_models/CosyVoice2-0.5B', load_jit=False, fp16=True, load_trt=False)
-#默认模型音色
+tts_model = None
+seed = 0  # random.randint(1, 100000000)
+
+# 建立模型实例
+# tts_model=CosyVoice2('pretrained_models/CosyVoice2-0.5B', load_jit=False, fp16=True, load_trt=False)
+
+
+def check_tts_model():
+    global tts_model, seed
+    if tts_model is None:
+        # flag = False
+        # try:
+        #    tts_model = CosyVoice(model_dir)
+        # except Exception:
+        try:
+            #        flag = True
+            tts_model = CosyVoice2(
+                model_dir, load_jit=False, fp16=True, load_trt=False)
+        except Exception:
+            raise TypeError('no valid model_type!')
+    set_all_random_seed(seed)
+
+
+check_tts_model()
+# 默认模型音色
 default_voices = tts_model.list_available_spks()
-#中文模型音色列表，可能和default_voices重复
-VOICE_LIST=['中文女', '中文男', '日语男', '粤语女', '英文女', '英文男', '韩语女']
+# 中文模型音色列表，可能和default_voices重复
+VOICE_LIST = ['中文女', '中文男', '日语男', '粤语女', '英文女', '英文男', '韩语女']
 # 自定义音色库，存放在voices_dir
 spk_custom = []
 for name in os.listdir(f"{voices_dir}/"):
@@ -85,7 +110,8 @@ for name in os.listdir(f"{voices_dir}/"):
 print("默认音色", default_voices)
 print("自定义音色", spk_custom)
 
-seed = 0  # random.randint(1, 100000000)
+# ========== 工具函数 =============
+
 
 def base64_to_wav(encoded_str, output_path):
     if not encoded_str:
@@ -106,201 +132,267 @@ def base64_to_wav(encoded_str, output_path):
 
 # 获取请求参数
 def get_params(req):
-    params={
-        "text":"",
-        "lang":"",
-        "role":"中文女",
-        "reference_audio":None,
-        "reference_text":"",
-        "speed":1.0
+    params = {
+        "text": "",
+        "lang": "",
+        "role": "中文女",
+        "reference_audio": None,
+        "reference_text": "",
+        "speed": 1.0,
+        "streaming": 0
     }
     # 原始字符串
-    params['text'] = req.args.get("text","").strip() or req.form.get("text","").strip()
+    params['text'] = req.args.get("text", "").strip() or req.form.get("text", "").strip()
 
     # 字符串语言代码
-    params['lang'] = req.args.get("lang","").strip().lower() or req.form.get("lang","").strip().lower()
+    params['lang'] = req.args.get("lang", "").strip().lower() or req.form.get("lang", "").strip().lower()
     # 兼容 ja语言代码
-    if params['lang']=='ja':
-        params['lang']='jp'
+    if params['lang'] == 'ja':
+        params['lang'] = 'jp'
     elif params['lang'][:2] == 'zh':
         # 兼容 zh-cn zh-tw zh-hk
-        params['lang']='zh'
+        params['lang'] = 'zh'
 
     # 角色名
-    role = req.args.get("role","").strip() or req.form.get("role",'')
+    role = req.args.get("role", "").strip() or req.form.get("role", '')
     if role:
-        params['role']=role
+        params['role'] = role
+
+    # 流式输出
+    streaming = req.args.get("streaming", "").strip() or req.form.get("streaming", '')
+    if streaming == '1':
+        streaming = 1
+    else:
+        streaming = 0
+    params['streaming'] = streaming
 
     # 要克隆的音色文件
-    params['reference_audio'] = req.args.get("reference_audio",None) or req.form.get("reference_audio",None)
-    encode=req.args.get('encode','') or req.form.get('encode','')
-    if  encode=='base64':
-        tmp_name=f'tmp/{time.time()}-clone-{len(params["reference_audio"])}.wav'
-        base64_to_wav(params['reference_audio'],root_dir+'/'+tmp_name)
-        params['reference_audio']=tmp_name
+    params['reference_audio'] = req.args.get(
+        "reference_audio", None) or req.form.get("reference_audio", None)
+    encode = req.args.get('encode', '') or req.form.get('encode', '')
+    if encode == 'base64':
+        tmp_name = f'tmp/{time.time()}-clone-{len(params["reference_audio"])}.wav'
+        base64_to_wav(params['reference_audio'], root_dir+'/'+tmp_name)
+        params['reference_audio'] = tmp_name
     # 音色文件对应文本
-    params['reference_text'] = req.args.get("reference_text",'').strip() or req.form.get("reference_text",'')
+    params['reference_text'] = req.args.get("reference_text", '').strip() or req.form.get("reference_text", '')
 
     return params
 
+
 def del_tmp_files(tmp_files: list):
+    """ 删除临时碎片语音文件 """
     print('正在删除缓存文件...')
     for f in tmp_files:
         if os.path.exists(f):
             print('删除缓存文件:', f)
             os.remove(f)
 
-# 实际批量合成完毕后连接为一个文件
-def batch(tts_type,outname,params):
-    global sft_model,tts_model,seed
+def load_pt_voice_data(speaker):
+    """加载自定义预训练语音数据"""
+    voice_path = f"{voices_dir}/{speaker}.pt"
+    try:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if not os.path.exists(voice_path):
+            return None
+        voice_data = torch.load(voice_path, map_location=device)
+        return voice_data.get('audio_ref')
+    except Exception as e:
+        raise ValueError(f"加载音色文件失败: {e}")
+
+def process_audio(tts_speeches, sample_rate=16000, format="wav"):
+    """处理音频数据并返回响应"""
+    buffer = io.BytesIO()
+    audio_data = torch.concat(tts_speeches, dim=1)
+
+    # 原始采样率（CosyVoice 默认为22050）
+    original_sr = 22050
+    
+    # 如果目标采样率与原始采样率不同，进行重采样
+    if sample_rate != original_sr:
+        resampler = torchaudio.transforms.Resample(orig_freq=original_sr, new_freq=sample_rate)
+        audio_data = resampler(audio_data)
+
+    torchaudio.save(buffer, audio_data, sample_rate, format=format)
+    buffer.seek(0)
+    return buffer
+
+def batch(tts_type, outname, params):
+    """ 实际批量合成完毕后连接为一个文件 """
+    global sft_model, tts_model, seed
     if not shutil.which("ffmpeg"):
         raise Exception('必须安装 ffmpeg')
-    prompt_speech_16k=None
-    if tts_type!='tts':
-        if not params['reference_audio'] or not os.path.exists(f"{root_dir}/asset/{params['reference_audio']}"):
-            raise Exception(f'参考音频未传入或不存在 {params["reference_audio"]}')
-        ref_audio=f"{tmp_dir}/-refaudio-{time.time()}.wav"
-        try:
-            subprocess.run(["ffmpeg","-hide_banner", "-ignore_unknown","-y","-i",f"{root_dir}/asset/{params['reference_audio']}","-ar","16000",ref_audio],
-                   stdout=subprocess.PIPE,
-                   stderr=subprocess.PIPE,
-                   encoding="utf-8",
-                   check=True,
-                   text=True,
-                   creationflags=0 if sys.platform != 'win32' else subprocess.CREATE_NO_WINDOW)
-        except Exception as e:
-            raise Exception(f'处理参考音频失败:{e}')
+    prompt_speech_16k = None
+    if tts_type != 'tts':
+        if os.path.exists(f"{voices_dir}/{params['role']}.pt"): #预训练音色
+            prompt_speech_16k = load_pt_voice_data(params['role'])
+            # 是否应该考虑参考文本文件内容？
 
-        prompt_speech_16k = load_wav(ref_audio, 16000)
-        if not params.get('reference_text') or params.get('reference_text')=='':
+        else:   #其它参考音频   
+            if not params['reference_audio'] or not os.path.exists(f"{root_dir}/asset/{params['reference_audio']}"):
+                raise Exception(f'参考音频未传入或不存在 {params["reference_audio"]}')
+            ref_audio = f"{tmp_dir}/-refaudio-{time.time()}.wav"
+            try:
+                subprocess.run(["ffmpeg", "-hide_banner", "-ignore_unknown", "-y", "-i", f"{root_dir}/asset/{params['reference_audio']}", "-ar", "16000", ref_audio],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", check=True, text=True,
+                            creationflags=0 if sys.platform != 'win32' else subprocess.CREATE_NO_WINDOW)
+            except Exception as e:
+                raise Exception(f'处理参考音频失败:{e}')
+
+            prompt_speech_16k = load_wav(ref_audio, 16000)
+
+        if not params.get('reference_text') or params.get('reference_text') == '':
             # 打开参考文本文件并读取所有内容
             if os.path.exists(f"{root_dir}/asset/{params['reference_audio']}.txt"):
                 with open(f"{root_dir}/asset/{params['reference_audio']}.txt", 'r', encoding='utf-8') as file:
-                    reference_text=file.read()
-                    params['reference_text']=reference_text
+                    reference_text = file.read()
+                    params['reference_text'] = reference_text
+    
+    streaming = int(params.get('streaming', 0))
+    format = params.get('format', 'wav')
+    text = params['text']
+    audio_list = []
+    check_tts_model()
 
-    text=params['text']
-    audio_list=[]
-    if tts_type=='tts':
-        #if sft_model is None:
+    if tts_type == 'tts':
+        # if sft_model is None:
         #    sft_model = CosyVoice('pretrained_models/CosyVoice-300M-SFT', load_jit=True, fp16=False)
-        ## 仅文字合成语音
-        #for i, j in enumerate(sft_model.inference_sft(text, params['role'],stream=False,speed=params['speed'])):
+        # 仅文字合成语音
+        # for i, j in enumerate(sft_model.inference_sft(text, params['role'],stream=False,speed=params['speed'])):
         #    audio_list.append(j['tts_speech'])
+        inference_func = lambda: tts_model.inference_sft(text, params['role'], stream=False, speed=params['speed'])
+        
 
-        if tts_model is None:
-            tts_model=CosyVoice2('pretrained_models/CosyVoice2-0.5B', load_jit=False, fp16=True, load_trt=False)
-        set_all_random_seed(seed)
-        for i, j in enumerate(tts_model.inference_sft(text, params['role'],stream=False,speed=params['speed'])):
-            audio_list.append(j['tts_speech'])
+    elif tts_type == 'clone_eq' and params.get('reference_text'):
+        inference_func = lambda: tts_model.inference_zero_shot(text, params.get('reference_text'), prompt_speech_16k, stream=False, speed=params['speed'])):
 
-    elif tts_type=='clone_eq' and params.get('reference_text'):
-        if tts_model is None:
-            tts_model=CosyVoice2('pretrained_models/CosyVoice2-0.5B', load_jit=False, fp16=True, load_trt=False)
-        set_all_random_seed(seed)
-        for i, j in enumerate(tts_model.inference_zero_shot(text,params.get('reference_text'),prompt_speech_16k, stream=False,speed=params['speed'])):
-            audio_list.append(j['tts_speech'])
+    elif tts_type == 'instruct' and params.get('instruct_text'):
+        inference_func = lambda: tts_model.inference_instruct2(text, params.get('instruct_text'), prompt_speech_16k, stream=False)):
+    
+    else:  # default clone or clone_mul
+        inference_func = lambda: tts_model.inference_cross_lingual(text, prompt_speech_16k, stream=False, speed=params['speed'])):
 
-    elif tts_type=='instruct' and params.get('instruct_text'):
-        if tts_model is None:
-            tts_model=CosyVoice2('pretrained_models/CosyVoice2-0.5B', load_jit=False, fp16=True, load_trt=False)
-        set_all_random_seed(seed)
-        for i, j in enumerate(tts_model.inference_instruct2(text,params.get('instruct_text'),prompt_speech_16k, stream=False)):
-            audio_list.append(j['tts_speech'])
+    # 处理流式输出
+    if streaming:
+        def generate():
+            for _, i in enumerate(inference_func()):
+                buffer = process_audio([i['tts_speech']], format="ogg")
+                yield buffer.read()
+        
+        response = make_response(generate())
+        response.headers.update({
+            'Content-Type': 'audio/ogg',
+            'Content-Disposition': 'attachment; filename=sound.ogg'
+        })
+        return response
+    
+    # 处理非流式输出
+    for i, j in enumerate(inference_func()):
+        audio_list.append(j['tts_speech'])
 
-    else:
-        if tts_model is None:
-            tts_model=CosyVoice2('pretrained_models/CosyVoice2-0.5B', load_jit=False, fp16=True, load_trt=False)
-        set_all_random_seed(seed)
-        for i, j in enumerate(tts_model.inference_cross_lingual(text,prompt_speech_16k, stream=False,speed=params['speed'])):
-            audio_list.append(j['tts_speech'])
     audio_data = torch.concat(audio_list, dim=1)
 
-    # 根据模型yaml配置设置采样率
-    if tts_type=='tts':
-        torchaudio.save(tmp_dir + '/' + outname,audio_data, 22050, format="wav")
-    elif tts_type=='clone_eq':
-        torchaudio.save(tmp_dir + '/' + outname,audio_data, 24000, format="wav")
+    # 根据模型设置采样率
+    if tts_type == 'tts':
+        torchaudio.save(tmp_dir + '/' + outname, audio_data, 22050, format=format)
     else:
-        torchaudio.save(tmp_dir + '/' + outname,audio_data, 24000, format="wav")
+        torchaudio.save(tmp_dir + '/' + outname, audio_data, 24000, format=format)
 
+    del_tmp_files(audio_list)
     print(f"音频文件生成成功：{tmp_dir}/{outname}")
-    return tmp_dir + '/' + outname
+    return send_file(tmp_dir + '/' + outname, mimetype=f'audio/{format}')
 
-
-# 单纯文字合成语音
+# ============= 4 种合成方式选择 ===========
 @app.route('/tts', methods=['GET', 'POST'])
 def tts():
     """根据内置角色合成文字"""
-    params=get_params(request)
+    params = get_params(request)
     if not params['text']:
-        return make_response(jsonify({"code":1,"msg":'缺少待合成的文本'}), 500)  # 设置状态码为500
+        # 设置状态码为500
+        return make_response(jsonify({"code": 1, "msg": '缺少待合成的文本'}), 500)
 
     try:
         # 仅文字合成语音
-        outname=f"tts-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S-')}.wav"
-        outname=batch(tts_type='tts',outname=outname,params=params)
+        outname = f"tts-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S-')}.wav"
+        return batch(tts_type='tts', outname=outname, params=params)
+        
     except Exception as e:
         print(e)
-        return make_response(jsonify({"code":2,"msg":str(e)}), 500)  # 设置状态码为500
-    else:
-        return send_file(outname, mimetype='audio/x-wav')
+        # 设置状态码为500
+        return make_response(jsonify({"code": 2, "msg": str(e)}), 500)
+#    else:
+#        return send_file(outname, mimetype='audio/x-wav')
 
-
-
-# 跨语言文字合成语音
 @app.route('/clone_mul', methods=['GET', 'POST'])
 @app.route('/clone', methods=['GET', 'POST'])
 def clone():
-
+    """ 跨语言文字合成语音 """
     try:
-        params=get_params(request)
+        params = get_params(request)
         if not params['text']:
-            return make_response(jsonify({"code":6,"msg":'缺少待合成的文本'}), 500)  # 设置状态码为500
+            # 设置状态码为500
+            return make_response(jsonify({"code": 6, "msg": '缺少待合成的文本'}), 500)
 
-        outname=f"clone-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S-')}.wav"
-        outname=batch(tts_type='clone',outname=outname,params=params)
+        outname = f"clone-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S-')}.wav"
+        return batch(tts_type='clone', outname=outname, params=params)
     except Exception as e:
-        return make_response(jsonify({"code":8,"msg":str(e)}), 500)  # 设置状态码为500
-    else:
-        return send_file(outname, mimetype='audio/x-wav')
+        # 设置状态码为500
+        return make_response(jsonify({"code": 8, "msg": str(e)}), 500)
+#    else:
+#        return send_file(outname, mimetype='audio/x-wav')
 
 @app.route('/clone_eq', methods=['GET', 'POST'])
 def clone_eq():
-
+    """ 同语言克隆音色合成 """
     try:
-        params=get_params(request)
+        params = get_params(request)
         if not params['text']:
-            return make_response(jsonify({"code":6,"msg":'缺少待合成的文本'}), 500)  # 设置状态码为500
+            # 设置状态码为500
+            return make_response(jsonify({"code": 6, "msg": '缺少待合成的文本'}), 500)
         if not params['reference_text']:
-            return make_response(jsonify({"code":6,"msg":'同语言克隆必须传递引用文本'}), 500)  # 设置状态码为500
+            # 设置状态码为500
+            return make_response(jsonify({"code": 6, "msg": '同语言克隆必须传递引用文本'}), 500)
 
-        outname=f"clone-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S-')}.wav"
-        outname=batch(tts_type='clone_eq',outname=outname,params=params)
+        outname = f"clone-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S-')}.wav"
+        return batch(tts_type='clone_eq', outname=outname, params=params)
     except Exception as e:
-        return make_response(jsonify({"code":8,"msg":str(e)}), 500)  # 设置状态码为500
-    else:
-        return send_file(outname, mimetype='audio/x-wav')
+        # 设置状态码为500
+        return make_response(jsonify({"code": 8, "msg": str(e)}), 500)
+#    else:
+#        return send_file(outname, mimetype='audio/x-wav')
+
 
 @app.route("/speakers", methods=['GET', 'POST'])
-@app.route('/v1/audio/voices', methods=['GET', 'POST'])
 def get_speakers():
-    """获取角色名称"""
+    """获取音色名称"""
     voices = []
+
+    for x in default_voices:
+        voices.append({"name": x, "voice_id": x})
+
+    for name in os.listdir("voices"):
+        name = name.replace(".pt", "")
+        voices.append({"name": name, "voice_id": name})
+
+    response = app.response_class(response=json.dumps(
+        voices), status=200, mimetype='application/json')
+    return response
+
+# ========= OpenAI api 兼容 ==============
+@app.route('/v1/audio/voices', methods=['GET', 'POST'])
+def get_voices():
+    """获取角色名称"""
     speakers = VOICE_LIST
 
     for x in default_voices:
-        voices.append({"name":x,"voice_id":x})
         speakers.append(x)
 
     for name in os.listdir("voices"):
-        name = name.replace(".pt","")
-        voices.append({"name":name,"voice_id":name})
+        name = name.replace(".pt", "")
         speakers.append(name)
 
-#    response = app.response_class(response=json.dumps(voices), status=200, mimetype='application/json')
-#    return response
     return {"available_speakers": list(speakers)}
+
 
 @app.route('/v1/audio/speech', methods=['POST'])
 def audio_speech():
@@ -318,64 +410,66 @@ def audio_speech():
     if 'input' not in data or 'voice' not in data:
         return jsonify({"error": "请求缺少必要的参数： input, voice"}), 400
 
-
     text = data.get('input')
-    speed =  float(data.get('speed',1.0))
+    speed = float(data.get('speed', 1.0))
 
-    voice = data.get('voice','中文女')
+    voice = data.get('voice', '中文女')
     params = {}
-    params['text']=text
-    params['speed']=speed
-    api_name='tts'
+    params['text'] = text
+    params['speed'] = speed
+    api_name = 'tts'
     # 处理随机数种子，在最前，以*分割
-    if voice!='':
+    if voice != '':
         if '*' in voice:
-            [seedstr,voicestr] = voice.split('*', 1)
+            [seedstr, voicestr] = voice.split('*', 1)
         else:
-            voicestr=voice
-            seedstr=0
-        voice=voicestr
+            voicestr = voice
+            seedstr = 0
+        voice = voicestr
         # <4294967295,0xffffffff,
-        seed=int(seedstr)&0xffffffff
+        seed = int(seedstr) & 0xffffffff
     print(f'\nApi:input={seedstr}*{voicestr}, Seed={seed},RoleInstruct={voice}')
-    if voice in VOICE_LIST:
-        params['role']=voice
-    elif voice!='':
+
+    if voice in VOICE_LIST or voice in default_voices:
+        params['role'] = voice
+    elif voice != '':
         if ':' in voice:
-            [voicestr,instruct] = voice.split(':', 1)
+            [voicestr, instruct] = voice.split(':', 1)
         else:
-            voicestr=voice
+            voicestr = voice
             instruct = ''
+
         if Path(voicestr).exists() or Path(f'{root_dir}/asset/{voicestr}').exists():
-            params['reference_audio']=voicestr
-            if instruct=='':
-                api_name='clone'
+            params['reference_audio'] = voicestr
+            if instruct == '':
+                api_name = 'clone'
             else:
-                api_name='instruct'
-                params['instruct_text']=instruct
+                api_name = 'instruct'
+                params['instruct_text'] = instruct
         else:
             return jsonify({"error": {"message": f"参考音频路径不存在", "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
 
     else:
         return jsonify({"error": {"message": f"必须填写配音角色名或参考音频路径", "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
 
-    filename=f'openai-{len(text)}-{speed}-{time.time()}-{seed}-{random.randint(1000,99999)}.wav'
+    filename = f'openai-{len(text)}-{speed}-{time.time()}-{seed}-{random.randint(1000,99999)}.wav'
     try:
-        outname=batch(tts_type=api_name,outname=filename,params=params)
-        return send_file(outname, mimetype='audio/x-wav')
+        return batch(tts_type=api_name, outname=filename, params=params)
+#        return send_file(outname, mimetype='audio/x-wav')
     except Exception as e:
         return jsonify({"error": {"message": f"{e}", "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
 
-if __name__=='__main__':
-    host='0.0.0.0'
-    port=8000
+
+if __name__ == '__main__':
+    host = '0.0.0.0'
+    port = 8000
     print(f'\n启动api:http://{host}:{port}\n')
     try:
         from waitress import serve
     except Exception:
         app.run(host=host, port=port)
     else:
-        serve(app,host=host, port=port)
+        serve(app, host=host, port=port)
 
 
 '''
@@ -416,7 +510,7 @@ data={
 response=requests.post(f'http://127.0.0.1:9933/tts',data=data,timeout=3600)
 ```
 ## 不同语言音色克隆:
-- 地址： /cone
+- 地址： /clone  /clone_mul
 参考音频发音语言和需要合成的文字语言不一致，例如需要根据中文发音的参考音频，将一段英文文本合成为语音。
 - 必须设置参数:
 `text`： 需要合成语音的文字
