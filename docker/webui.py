@@ -215,7 +215,7 @@ def validate_input(mode, tts_text, sft_dropdown, prompt_text, prompt_wav, instru
     # zero_shot mode only use prompt_wav prompt text
     if mode in ['3s极速复刻']:
         if prompt_text == '':
-        return False, 'prompt文本为空，您是否忘记输入prompt文本？'
+        	return False, 'prompt文本为空，您是否忘记输入prompt文本？'
         if instruct_text != '':
             gr.Info('您正在使用3s极速复刻模式，预训练音色/instruct文本会被忽略！')
 

@@ -78,9 +78,14 @@ COPY ./add/ttsfrd*.whl /tmp/
 # COPY ./pretrained_models/CosyVoice2-0.5B /workspace/CosyVoice/pretrained_models/CosyVoice2-0.5B/
 
 RUN --mount=type=cache,target=/root/.cache/pip  \
-   cd CosyVoice && python -m pip install  --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple -r requirements.txt  \
-    && pip install -i https://mirrors.aliyun.com/pypi/simple /tmp/ttsfrd_dependency-0.1-py3-none-any.whl /tmp/ttsfrd-0.4.2-cp310-cp310-linux_x86_64.whl \
-    && rm /tmp/ttsfrd*.whl && rm -rf /root/.cache/pip && conda clean --all
+   cd CosyVoice && python -m pip install  --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple -r requirements.txt  
+   
+#RUN --mount=type=cache,target=/root/.cache/pip  \
+#    pip install -i https://mirrors.aliyun.com/pypi/simple ttsfrd_dependency ttsfrd 
+
+
+#    && pip install -i https://mirrors.aliyun.com/pypi/simple /tmp/ttsfrd_dependency-0.1-py3-none-any.whl /tmp/ttsfrd-0.4.2-cp310-cp310-linux_x86_64.whl \
+#
 
 #FROM condabuilder AS fine
 #COPY --from=cosyvoicebuilder /opt/conda/ /opt/conda/
@@ -91,19 +96,24 @@ COPY ./docker/openai-api.py /workspace/CosyVoice/
 COPY ./docker/entrypoint.sh /workspace/CosyVoice/
 COPY ./docker/webui.py /workspace/CosyVoice/
 
-
+RUN rm /tmp/ttsfrd*.whl && rm -rf /root/.cache/pip && conda clean --all && \
+  chown -R ${USER_NAME}:${USER_NAME} /workspace/ && \
+  chmod u+x /workspace/CosyVoice/entrypoint.sh  && \
+   sed -i -e 's#"https://huggingface.co#"https://hf-mirror.com#g' /opt/conda/lib/python3.1*/site-packages/huggingface_hub/constants.py \
+   && chmod 777 /opt/conda/lib/python3.11/site-packages/tn/
+   
 USER ${USER_NAME}
 ENV HOME=/home/${USER_NAME}
 WORKDIR $HOME
 
+ENV PATH=/opt/conda/bin:/opt/conda/envs/${VENV}/bin:$PATH
 RUN /opt/conda/bin/python3.11 -m venv  --system-site-packages ${VENV} \
  && echo "source $HOME/${VENV}/bin/activate" >> ${HOME}/.bashrc && source $HOME/${VENV}/bin/activate
 
-RUN ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
-    echo "source /opt/conda/etc/profile.d/conda.sh" >> ~/.bashrc && \
-    echo "conda activate ${VENV}" >> $HOME/.bashrc
+#RUN ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
+#    echo "source /opt/conda/etc/profile.d/conda.sh" >> ~/.bashrc && \
+#    echo "conda activate ${VENV}" >> $HOME/.bashrc
 
-ENV PATH=/opt/conda/bin:/opt/conda/envs/${VENV}/bin:$PATH
 
 ARG MODEL_PATH_ARG=pretrained_models/CosyVoice2-0.5B
 

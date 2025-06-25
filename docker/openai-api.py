@@ -264,13 +264,13 @@ def batch(tts_type, outname, params):
         
 
     elif tts_type == 'clone_eq' and params.get('reference_text'):
-        inference_func = lambda: tts_model.inference_zero_shot(text, params.get('reference_text'), prompt_speech_16k, stream=False, speed=params['speed'])):
+        inference_func = lambda: tts_model.inference_zero_shot(text, params.get('reference_text'), prompt_speech_16k, stream=False, speed=params['speed'])
 
     elif tts_type == 'instruct' and params.get('instruct_text'):
-        inference_func = lambda: tts_model.inference_instruct2(text, params.get('instruct_text'), prompt_speech_16k, stream=False)):
+        inference_func = lambda: tts_model.inference_instruct2(text, params.get('instruct_text'), prompt_speech_16k, stream=False)
     
     else:  # default clone or clone_mul
-        inference_func = lambda: tts_model.inference_cross_lingual(text, prompt_speech_16k, stream=False, speed=params['speed'])):
+        inference_func = lambda: tts_model.inference_cross_lingual(text, prompt_speech_16k, stream=False, speed=params['speed'])
 
     # 处理流式输出
     if streaming:

@@ -45,5 +45,6 @@ fastapi==0.115.6
 fastapi-cli==0.0.4
 WeTextProcessing==1.0.3
 flask
+flask_cors
 tensorboard>=2.14.0
 
