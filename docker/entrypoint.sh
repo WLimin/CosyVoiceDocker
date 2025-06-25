@@ -6,18 +6,18 @@ DEVICE=""
 if [ "${CUDA_ENABLED}" != "true" ]; then
     DEVICE="--device cpu"
 fi
-
+which python3
 case ${CAPABILITIES} in
     api)
-        exec /opt/conda/envs/${VENV}/bin/python3 openai-api.py
+        exec python3 openai-api.py
     ;;
     web)
-        exec /opt/conda/envs/${VENV}/bin/python3 webui.py --port 8080 --model_dir ${MODEL_PATH} 
+        exec python3 webui.py --port 8080 --model_dir ${MODEL_PATH} 
     ;;
     *)
         #all
-        /opt/conda/envs/${VENV}/bin/python3 webui.py --port 8080 --model_dir ${MODEL_PATH} &
-        exec /opt/conda/envs/${VENV}/bin/python3 openai-api.py
+        python3 webui.py --port 8080 --model_dir ${MODEL_PATH} &
+        python3 openai-api.py
     ;;
 esac
 
