@@ -12,19 +12,30 @@
 # curl -X POST "http://127.0.0.1:8087/v1/audio/speech"  -H "Content-Type: application/json"  -d '{ "input": "Hello, 中文和英文混合测试。this is a test of the MeloTTS API.", "voice": "中文女", "response_format": "wav","speed": 1.0 }' --output /tmp/nfs/output.wav
 
 VOLUMES=$PWD/
+
+# 检查专属网络是否创建
+DOCKER_NET=openwebui-net
+docker network ls --format '{{.Name}}' | grep "${DOCKER_NET}"
+if [ $? -ne 0 ]; then
+    docker network create ${DOCKER_NET}
+fi
 which nvidia-smi
 if [ $? -eq 0 ]; then #有gpu支持
 RUN_USE_GPU="--name cosy-voice --gpus all"
 else
 RUN_USE_GPU="--name cosy-voice "
 fi
+#debug force use CPU
+#RUN_USE_GPU="--name cosy-voice "
 
+#CAPABILITIES=all|api|web
 docker run -itd $RUN_USE_GPU \
---network=openwebui-net \
- -p 8086:8080 -p 8087:8000 \
--v ${VOLUMES}/pretrained_models:/workspace/CosyVoice/pretrained_models \
- -v ${VOLUMES}/asset:/workspace/CosyVoice/asset \
- -e CUDA_ENABLED=false \
- -e MODEL_PATH=pretrained_models/CosyVoice2-0.5B \
+    --network=${DOCKER_NET} \
+	-p 8086:8080 -p 8087:8000 \
+	-v ${VOLUMES}/pretrained_models:/workspace/CosyVoice/pretrained_models \
+	-v ${VOLUMES}/asset:/workspace/CosyVoice/asset \
+	-e CUDA_ENABLED=false \
+	-e CAPABILITIES=all \
+	-e MODEL_PATH=pretrained_models/CosyVoice2-0.5B \
  cosyvoice-gpu
 

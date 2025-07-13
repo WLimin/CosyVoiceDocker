@@ -25,12 +25,18 @@ from funasr import AutoModel
 from funasr.utils.postprocess_utils import rich_transcription_postprocess
 import shutil
 import time
+from pathlib import Path
 
 # 设置环境变量禁用tokenizers并行处理
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+#ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = Path(__file__).parent.as_posix()
+print(f"ROOT_DIR={ROOT_DIR}")
 sys.path.append('{}/third_party/Matcha-TTS'.format(ROOT_DIR))
+
+voices_dir = Path(f'{ROOT_DIR}/pretrained_models/voices').as_posix()
+print(f"voices_dir={voices_dir}")
 
 from cosyvoice.cli.cosyvoice import CosyVoice, CosyVoice2
 from cosyvoice.utils.file_utils import load_wav, logging
@@ -55,7 +61,7 @@ model_versions = None
 def refresh_sft_spk():
     """刷新音色选择列表 """
     # 获取自定义音色
-    files = [(entry.name, entry.stat().st_mtime) for entry in os.scandir(f"{ROOT_DIR}/voices")]
+    files = [(entry.name, entry.stat().st_mtime) for entry in os.scandir(f"{voices_dir}")]
     files.sort(key=lambda x: x[1], reverse=True) # 按时间排序
 
     # 添加预训练音色
@@ -69,7 +75,7 @@ def refresh_sft_spk():
 
 def refresh_prompt_wav():
     """刷新音频选择列表"""
-    files = [(entry.name, entry.stat().st_mtime) for entry in os.scandir(f"{ROOT_DIR}/audios")]
+    files = [(entry.name, entry.stat().st_mtime) for entry in os.scandir(f"{voices_dir}")]
     files.sort(key=lambda x: x[1], reverse=True)  # 按时间排序
     choices = ["请选择参考音频或者自己上传"] + [f[0] for f in files]
 
@@ -81,7 +87,7 @@ def refresh_prompt_wav():
 
 def change_prompt_wav(filename):
     """切换音频文件"""
-    full_path = f"{ROOT_DIR}/audios/{filename}"
+    full_path = f"{voices_dir}/{filename}"
     if not os.path.exists(full_path):
         logging.warning(f"音频文件不存在: {full_path}")
         return None
@@ -95,7 +101,7 @@ def save_voice_model(voice_name):
         return False
 
     try:
-        shutil.copyfile(f"{ROOT_DIR}/output.pt", f"{ROOT_DIR}/voices/{voice_name}.pt")
+        shutil.copyfile(f"{ROOT_DIR}/output.pt", f"{voices_dir}/{voice_name}.pt")
         gr.Info("音色保存成功,存放位置为voices目录")
         return True
     except Exception as e:
@@ -308,7 +314,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
     elif mode_checkbox_group == '自然语言控制':
         logging.info('get instruct inference request')
         
-        voice_path = f"{ROOT_DIR}/voices/{sft_dropdown}.pt"
+        voice_path = f"{voices_dir}/{sft_dropdown}.pt"
         prompt_speech_16k = load_voice_data(voice_path)
         
         if prompt_speech_16k is None:
@@ -454,7 +460,7 @@ if __name__ == '__main__':
                         help='local path or modelscope repo id')
     parser.add_argument('--asr_model_dir',
                         type=str,
-                        default='pretrained_models/SenseVoiceSmall',
+                        default='iic/SenseVoiceSmall',
                         help='local path or modelscope repo id of iic/SenseVoiceSmall')
     parser.add_argument('--open',
                         action='store_true',
@@ -486,10 +492,6 @@ if __name__ == '__main__':
     prompt_sr = 16000
     default_data = np.zeros(cosyvoice.sample_rate)
 
-    #model_dir = "pretrained_models/SenseVoiceSmall"
-    asr_model = AutoModel(
-        model=args.asr_model_dir,
-        disable_update=True,
-        log_level=args.log_level,
-        device="cuda:0")
+    #model_dir = "iic/SenseVoiceSmall" # $HOME/.cache/modelscope/hub/iic/SenseVoiceSmall
+    asr_model = AutoModel( model=args.asr_model_dir, disable_update=True, log_level=args.log_level, device="cuda:0")
     main()

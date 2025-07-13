@@ -7,6 +7,10 @@ if [ "${CUDA_ENABLED}" != "true" ]; then
     DEVICE="--device cpu"
 fi
 which python3
+if [ ! -d ${HOME}/.cache/modelscope/hub ] ; then
+	mkdir -p ${HOME}/.cache/
+ 	ln -s /workspace/CosyVoice/pretrained_models/modelscope/ ${HOME}/.cache/modelscope
+fi
 case ${CAPABILITIES} in
     api)
         exec python3 openai-api.py

@@ -370,7 +370,7 @@ def get_speakers():
     for x in default_voices:
         voices.append({"name": x, "voice_id": x})
 
-    for name in os.listdir("voices"):
+    for name in os.listdir(f"{voices_dir}/"):
         name = name.replace(".pt", "")
         voices.append({"name": name, "voice_id": name})
 
@@ -387,7 +387,7 @@ def get_voices():
     for x in default_voices:
         speakers.append(x)
 
-    for name in os.listdir("voices"):
+    for name in os.listdir(f"{voices_dir}/"):
         name = name.replace(".pt", "")
         speakers.append(name)
 
