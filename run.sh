@@ -19,13 +19,15 @@ docker network ls --format '{{.Name}}' | grep "${DOCKER_NET}"
 if [ $? -ne 0 ]; then
     docker network create ${DOCKER_NET}
 fi
-
 which nvidia-smi
 if [ $? -eq 0 ]; then #有gpu支持
 RUN_USE_GPU="--name cosy-voice --gpus all"
 else
 RUN_USE_GPU="--name cosy-voice "
 fi
+#debug force use CPU
+#RUN_USE_GPU="--name cosy-voice "
+
 #CAPABILITIES=all|api|web
 docker run -itd $RUN_USE_GPU \
     --network=${DOCKER_NET} \

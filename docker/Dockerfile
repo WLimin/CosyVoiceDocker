@@ -48,8 +48,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 #RUN conda config --set channel_priority strict && \
 #  /opt/conda/bin/python3.11 -m venv  --system-site-packages ${VENV} 
 #RUN  ls -lah  /opt/conda/bin 
-RUN      conda install libsqlite=3.48.0 pynini  && \
-   python -m pip config set global.index-url https://mirrors.aliyun.com/pypi/simple && \
+# RUN conda install libsqlite=3.48.0 pynini 没有使用到libsqlite和pynini 
+RUN python -m pip config set global.index-url https://mirrors.aliyun.com/pypi/simple && \
   git config --global --add safe.directory '*' \
   && useradd -l -u $UID -U -m -s /bin/bash ${USER_NAME}
   
