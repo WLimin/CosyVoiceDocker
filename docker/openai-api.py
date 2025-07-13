@@ -461,8 +461,8 @@ def audio_speech():
 
 
 if __name__ == '__main__':
-    host = '0.0.0.0'
-    port = 8000
+    host = os.getenv('API_HOST', '0.0.0.0')
+    port = os.getenv('API_PORT', '8000')
     print(f'\n启动api:http://{host}:{port}\n')
     try:
         from waitress import serve
