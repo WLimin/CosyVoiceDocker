@@ -1,9 +1,9 @@
 #FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04 AS condabuilder
-FROM pytorch/pytorch:2.7.0-cuda12.8-cudnn9-runtime AS condabuilder
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime AS condabuilder
 #python 3.11
 
 #FROM ${BASE_IMAGE}
-ARG PYTORCH_VERSION=v2.7.0
+ARG PYTORCH_VERSION=v2.7.1
 ARG UID=1000
 ARG USER_NAME=webui
 
@@ -69,12 +69,12 @@ ENV PYTHONPATH="/workspace/CosyVoice:/workspace/CosyVoice/third_party/Matcha-TTS
 
 # RUN conda init 
 #RUN conda activate ${VENV} && conda install -y -c conda-forge pynini
-#pynini==2.1.5
+#pynini==2.1.5 据说是依赖WeTextProcessing，新版本似乎不需要
 
 # RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git
 COPY ./CosyVoice /workspace/CosyVoice/
 COPY ./docker/requirements.txt /workspace/CosyVoice/
-COPY ./add/ttsfrd*.whl /tmp/
+# COPY ./add/ttsfrd*.whl /tmp/
 # COPY ./pretrained_models/CosyVoice2-0.5B /workspace/CosyVoice/pretrained_models/CosyVoice2-0.5B/
 
 RUN --mount=type=cache,target=/root/.cache/pip  \
@@ -96,11 +96,13 @@ COPY ./docker/openai-api.py /workspace/CosyVoice/
 COPY ./docker/entrypoint.sh /workspace/CosyVoice/
 COPY ./docker/webui.py /workspace/CosyVoice/
 
-RUN rm /tmp/ttsfrd*.whl && rm -rf /root/.cache/pip && conda clean --all && \
-  chown -R ${USER_NAME}:${USER_NAME} /workspace/ && \
+#RUN rm /tmp/ttsfrd*.whl && rm -rf /root/.cache/pip && conda clean --all && 
+RUN rm -rf /root/.cache/pip && conda clean --all && \
+   chown -R ${USER_NAME}:${USER_NAME} /workspace/ && \
   chmod u+x /workspace/CosyVoice/entrypoint.sh  && \
-   sed -i -e 's#"https://huggingface.co#"https://hf-mirror.com#g' /opt/conda/lib/python3.1*/site-packages/huggingface_hub/constants.py \
-   && chmod 777 /opt/conda/lib/python3.11/site-packages/tn/
+   sed -i -e 's#"https://huggingface.co#"https://hf-mirror.com#g' /opt/conda/lib/python3.1*/site-packages/huggingface_hub/constants.py 
+   
+   #&& chmod -R 777 /opt/conda/lib/python3.11/site-packages/tn/
    
 USER ${USER_NAME}
 ENV HOME=/home/${USER_NAME}
