@@ -87,11 +87,23 @@ def refresh_prompt_wav():
 
 
 def change_prompt_wav(filename):
-    """切换音频文件"""
+    """切换参考音频或预置音色文件"""
     full_path = f"{voices_dir}/{filename}"
     if not os.path.exists(full_path):
-        logging.warning(f"音频文件不存在: {full_path}")
-        return None
+        full_path = f"{voices_dir}/{filename}.pt"
+        if os.path.exists(full_path):
+            #生成临时音频文件并返回
+            ref_audio = f"{tmp_dir}/-refaudio-{time.time()}.wav"
+            try:
+                voice_data = torch.load(full_path, map_location=f'{device_str}')
+                torchaudio.save(ref_audio, torch.load(voice_path, map_location=f'{device_str}') , format="wav")
+                full_path=ref_audio
+            except Exception as e:
+                logging.error(f"加载音色文件失败: {e}")
+                return None
+        else:
+            logging.warning(f"音频文件不存在: {full_path}")
+            return None
 
     return full_path
 
@@ -147,7 +159,7 @@ def change_instruction(mode_checkbox_group):
     )
 
 def prompt_wav_recognition(prompt_wav):
-    """音频识别文本"""
+    """参考或上传音频文件，用funasr识别文本"""
     if prompt_wav is None:
         return ''
 
@@ -164,11 +176,24 @@ def prompt_wav_recognition(prompt_wav):
         return ''
 
 def load_voice_data(voice_path):
-    """加载音色数据"""
+    """加载音色文件中内置的音频数据"""
     try:
         #device_str = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        voice_data = torch.load(voice_path, map_location=device_str) if os.path.exists(voice_path) else None
+        voice_data = torch.load(voice_path, map_location=f'{device_str}') if os.path.exists(voice_path) else None
         return voice_data.get('audio_ref') if voice_data else None
+    except Exception as e:
+        logging.error(f"加载音色文件失败: {e}")
+        return None
+
+def load_voice_pt(voice_path):
+    """加载音色文件中内置的音频数据和文本（或许）"""
+    try:
+        #device_str = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        voice_data = torch.load(voice_path, map_location=f'{device_str}') if os.path.exists(voice_path) else None
+        
+        voice = voice_data.get('audio_ref') if voice_data else None
+        text_ref = voice_data.get('text_ref') if voice_data else None
+        return voice, text_ref
     except Exception as e:
         logging.error(f"加载音色文件失败: {e}")
         return None
@@ -300,7 +325,26 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
     # 根据不同模式处理
     if mode_checkbox_group == '预训练音色':
         # logging.info('get sft inference request')
-        generator = cosyvoice.inference_sft(tts_text, sft_dropdown, stream=stream, speed=speed)
+        if sft_dropdown in cosyvoice.list_available_spks():
+            print(f"预训练音色:{sft_dropdown}")
+            generator = cosyvoice.inference_sft(tts_text, sft_dropdown, stream=stream, speed=speed)
+        else:
+            # 处理prompt音频输入
+            voice_path = f"{voices_dir}/{sft_dropdown}.pt"
+            print(f"用'3s极速复刻'模式处理预置音色:{sft_dropdown}，需要'{voice_path}'文件。")
+            prompt_speech_16k, prompt_text = load_voice_pt(voice_path)
+            print(f"prompt_text='{prompt_text}'")
+            if prompt_speech_16k is None:
+                gr.Warning('预置音色文件中缺少prompt_speech数据！')
+                yield (cosyvoice.sample_rate, default_data), None
+                return
+            #else:
+            #	prompt_speech_16k.
+            	
+            if prompt_text is None:
+                gr.Warning('预置音色文件中缺少prompt_text数据！')
+
+            generator = cosyvoice.inference_zero_shot(tts_text, prompt_text, prompt_speech_16k, stream=stream, speed=speed)
 
     elif mode_checkbox_group == '3s极速复刻':
         logging.info('get zero_shot inference request')
@@ -385,9 +429,9 @@ def main():
 
         # 音频输入区域
         with gr.Row():
-            prompt_wav_upload = gr.Audio(sources='upload', type='filepath', label='选择prompt音频文件，注意采样率不低于16khz')
-            prompt_wav_record = gr.Audio(sources='microphone', type='filepath', label='录制prompt音频文件')
-            with gr.Column():
+            prompt_wav_upload = gr.Audio(sources='upload', type='filepath', label='选择prompt音频文件，注意采样率不低于16khz', scale=2)
+            prompt_wav_record = gr.Audio(sources='microphone', type='filepath', label='录制prompt音频文件', scale=2)
+            with gr.Column(scale=1):
                 wavs_dropdown = gr.Dropdown(
                     label="参考音频列表",
                     choices=reference_wavs,

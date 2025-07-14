@@ -15,23 +15,24 @@ import logging
 import os
 import time
 import sys
+import json
 from pathlib import Path
 root_dir = Path(__file__).parent.as_posix()
 
-# ffmpeg
+# ffmpeg 路径，实际不需要
 if sys.platform == 'win32':
-    os.environ['PATH'] = root_dir + f';{root_dir}\\ffmpeg;' + \
-        os.environ['PATH']+f';{root_dir}/third_party/Matcha-TTS'
+    os.environ['PATH'] = root_dir + f';{root_dir}\\ffmpeg;' + os.environ['PATH']+f';{root_dir}/third_party/Matcha-TTS'
 else:
     os.environ['PATH'] = root_dir + f':{root_dir}/ffmpeg:' + os.environ['PATH']
-    os.environ['PYTHONPATH'] = os.environ.get(
-        'PYTHONPATH', '') + ':third_party/Matcha-TTS'
+    os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH', '') + ':third_party/Matcha-TTS'
+
 sys.path.append(f'{root_dir}/third_party/Matcha-TTS')
 
 model_dir = Path(f'{root_dir}/pretrained_models/CosyVoice2-0.5B').as_posix()
+voices_dir = Path(f'{root_dir}/pretrained_models/voices').as_posix()
+
 tmp_dir = Path(f'{root_dir}/tmp').as_posix()
 logs_dir = Path(f'{root_dir}/logs').as_posix()
-voices_dir = Path(f'{root_dir}/pretrained_models/voices').as_posix()
 os.makedirs(tmp_dir, exist_ok=True)
 os.makedirs(logs_dir, exist_ok=True)
 
@@ -58,11 +59,9 @@ app = Flask(__name__, static_folder=tmp_dir, static_url_path='/tmp')
 
 app.logger.setLevel(logging.WARNING)
 # 创建 RotatingFileHandler 对象，设置写入的文件路径和大小限制
-file_handler = RotatingFileHandler(
-    logs_dir+f'/{datetime.datetime.now().strftime("%Y%m%d")}.log', maxBytes=1024 * 1024, backupCount=5)
+file_handler = RotatingFileHandler(logs_dir+f'/{datetime.datetime.now().strftime("%Y%m%d")}.log', maxBytes=1024 * 1024, backupCount=5)
 # 创建日志的格式
-formatter = logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 # 设置文件处理器的级别和格式
 file_handler.setLevel(logging.WARNING)
 file_handler.setFormatter(formatter)
@@ -78,8 +77,6 @@ seed = 0  # random.randint(1, 100000000)
 
 # 建立模型实例
 # tts_model=CosyVoice2('pretrained_models/CosyVoice2-0.5B', load_jit=False, fp16=True, load_trt=False)
-
-
 def check_tts_model():
     global tts_model, seed
     if tts_model is None:
@@ -89,14 +86,13 @@ def check_tts_model():
         # except Exception:
         try:
             #        flag = True
-            tts_model = CosyVoice2(
-                model_dir, load_jit=False, fp16=True, load_trt=False)
+            tts_model = CosyVoice2(model_dir, load_jit=False, fp16=True, load_trt=False)
         except Exception:
             raise TypeError('no valid model_type!')
     set_all_random_seed(seed)
 
-
 check_tts_model()
+
 # 默认模型音色
 default_voices = tts_model.list_available_spks()
 # 中文模型音色列表，可能和default_voices重复
@@ -111,8 +107,6 @@ print("默认音色", default_voices)
 print("自定义音色", spk_custom)
 
 # ========== 工具函数 =============
-
-
 def base64_to_wav(encoded_str, output_path):
     if not encoded_str:
         raise ValueError("Base64 encoded string is empty.")
@@ -374,8 +368,7 @@ def get_speakers():
         name = name.replace(".pt", "")
         voices.append({"name": name, "voice_id": name})
 
-    response = app.response_class(response=json.dumps(
-        voices), status=200, mimetype='application/json')
+    response = app.response_class(response=json.dumps(voices), status=200, mimetype='application/json')
     return response
 
 # ========= OpenAI api 兼容 ==============
@@ -470,7 +463,6 @@ if __name__ == '__main__':
         app.run(host=host, port=port)
     else:
         serve(app, host=host, port=port)
-
 
 '''
 
