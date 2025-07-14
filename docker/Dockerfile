@@ -3,8 +3,8 @@ FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime AS condabuilder
 
 ARG PYTORCH_VERSION=v2.7.1
 ARG UID=1000
-ARG USER_NAME=webui
-
+ARG ARG_USER_NAME=webui
+ENV USER=$ARG_USER_NAME
 ARG VENV_NAME="cosyvoice"
 ENV VENV=$VENV_NAME
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
@@ -20,7 +20,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && apt-get update -y --fix-missing \
     && apt-get install -y git build-essential curl wget ffmpeg unzip git git-lfs sox libsox-dev tar bash vim \
     && apt-get clean && git lfs install && git config --global --add safe.directory '*' \
-    && python -m pip config set global.index-url https://mirrors.aliyun.com/pypi/simple && useradd -l -u $UID -U -m -s /bin/bash ${USER_NAME}
+    && python -m pip config set global.index-url https://mirrors.aliyun.com/pypi/simple && useradd -l -u $UID -U -m -s /bin/bash ${USER}
 
 ENV CONDA_DEFAULT_ENV=${VENV}
 ENV PATH=/opt/conda/bin:/opt/conda/envs/${VENV}/bin:$PATH
@@ -39,12 +39,12 @@ COPY ./docker/openai-api.py /workspace/CosyVoice/
 COPY ./docker/entrypoint.sh /workspace/CosyVoice/
 COPY ./docker/webui.py /workspace/CosyVoice/
 
-RUN rm -rf /root/.cache/pip && conda clean --all && chown -R ${USER_NAME}:${USER_NAME} /workspace/ && chmod u+x /workspace/CosyVoice/entrypoint.sh \
+RUN rm -rf /root/.cache/pip && conda clean --all && chown -R ${USER}:${USER} /workspace/ && chmod u+x /workspace/CosyVoice/entrypoint.sh \
   && sed -i -e 's#"https://huggingface.co#"https://hf-mirror.com#g' /opt/conda/lib/python3.1*/site-packages/huggingface_hub/constants.py 
    #&& chmod -R 777 /opt/conda/lib/python3.11/site-packages/tn/
    
-USER ${USER_NAME}
-ENV HOME=/home/${USER_NAME}
+USER ${USER}
+ENV HOME=/home/${USER}
 WORKDIR $HOME
 
 ENV PATH=/opt/conda/bin:/opt/conda/envs/${VENV}/bin:$PATH
