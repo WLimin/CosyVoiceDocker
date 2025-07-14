@@ -57,6 +57,7 @@ instruct_dict = {'预训练音色': '1. 选择预训练音色\n2. 点击生成�
 stream_mode_list = [('否', False), ('是', True)]
 max_val = 0.8
 model_versions = None
+device_str = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def refresh_sft_spk():
     """刷新音色选择列表 """
@@ -165,8 +166,8 @@ def prompt_wav_recognition(prompt_wav):
 def load_voice_data(voice_path):
     """加载音色数据"""
     try:
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        voice_data = torch.load(voice_path, map_location=device) if os.path.exists(voice_path) else None
+        #device_str = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        voice_data = torch.load(voice_path, map_location=device_str) if os.path.exists(voice_path) else None
         return voice_data.get('audio_ref') if voice_data else None
     except Exception as e:
         logging.error(f"加载音色文件失败: {e}")
@@ -300,7 +301,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
     if mode_checkbox_group == '预训练音色':
         # logging.info('get sft inference request')
         generator = cosyvoice.inference_sft(tts_text, sft_dropdown, stream=stream, speed=speed)
-        
+
     elif mode_checkbox_group == '3s极速复刻':
         logging.info('get zero_shot inference request')
         prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr))
@@ -313,15 +314,15 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
 
     elif mode_checkbox_group == '自然语言控制':
         logging.info('get instruct inference request')
-        
+
         voice_path = f"{voices_dir}/{sft_dropdown}.pt"
         prompt_speech_16k = load_voice_data(voice_path)
-        
+
         if prompt_speech_16k is None:
             gr.Warning('预训练音色文件中缺少prompt_speech数据！')
             yield (cosyvoice.sample_rate, default_data), None
             return
-            
+
         if model_versions == 'V1':
             generator = cosyvoice.inference_instruct(tts_text, sft_dropdown, instruct_text, stream=stream, speed=speed)
         elif model_versions == 'V2':
@@ -334,7 +335,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
     # 处理音频生成并获取总时长
     audio_generator = process_audio(generator, stream)
     total_duration = 0
-    
+
     # 收集所有音频输出
     for output in audio_generator:
         if isinstance(output, (float, int)):  # 如果是总时长
@@ -366,17 +367,19 @@ def main():
         # 主要输入区域
         tts_text = gr.Textbox(label="输入合成文本", lines=1, value="CosyVoice迎来全面升级，提供更准、更稳、更快、 更好的语音生成能力。CosyVoice is undergoing a comprehensive upgrade, providing more accurate, stable, faster, and better voice generation capabilities.")
         with gr.Row():
-            mode_checkbox_group = gr.Radio(choices=inference_mode_list, label='选择推理模式', value=inference_mode_list[0])
-            instruction_text = gr.Text(label="操作步骤", value=instruct_dict[inference_mode_list[0]], scale=0.5)
+            mode_checkbox_group = gr.Radio(choices=inference_mode_list, label='选择推理模式', value=inference_mode_list[0], scale=1)
+            instruction_text = gr.Text(label="操作步骤", value=instruct_dict[inference_mode_list[0]], scale=3)
             # 音色选择部分
-            sft_dropdown = gr.Dropdown(choices=sft_spk, label='选择预训练音色', value=sft_spk[0], scale=0.25)
-            refresh_voice_button = gr.Button("刷新音色")
+            with gr.Column(scale=1) as choice_sft_spk:
+                sft_dropdown = gr.Dropdown(choices=sft_spk, label='选择预训练音色', value=sft_spk[0])
+                refresh_voice_button = gr.Button("刷新音色")
 
             # 流式控制和速度调节
-            stream = gr.Radio(choices=stream_mode_list, label='是否流式推理', value=stream_mode_list[0][1])
-            speed = gr.Number(value=1, label="速度调节(仅支持非流式推理)", minimum=0.5, maximum=2.0, step=0.1)
+            with gr.Column(scale=1):
+                stream = gr.Radio(choices=stream_mode_list, label='是否流式推理', value=stream_mode_list[0][1])
+                speed = gr.Number(value=1, label="速度调节(仅支持非流式推理)", minimum=0.5, maximum=2.0, step=0.1)
             # 随机种子控制
-            with gr.Column(scale=0.25):
+            with gr.Column(scale=1):
                 seed_button = gr.Button(value="\U0001F3B2")
                 seed = gr.Number(value=0, label="随机推理种子")
 
@@ -384,13 +387,14 @@ def main():
         with gr.Row():
             prompt_wav_upload = gr.Audio(sources='upload', type='filepath', label='选择prompt音频文件，注意采样率不低于16khz')
             prompt_wav_record = gr.Audio(sources='microphone', type='filepath', label='录制prompt音频文件')
-            wavs_dropdown = gr.Dropdown(
-                label="参考音频列表",
-                choices=reference_wavs,
-                value="请选择参考音频或者自己上传",
-                interactive=True
-            )
-            refresh_button = gr.Button("刷新参考音频")
+            with gr.Column():
+                wavs_dropdown = gr.Dropdown(
+                    label="参考音频列表",
+                    choices=reference_wavs,
+                    value="请选择参考音频或者自己上传",
+                    interactive=True
+                )
+                refresh_button = gr.Button("刷新参考音频")
         # 文本输入区域
         prompt_text = gr.Textbox(label="输入prompt文本", lines=1, placeholder="请输入prompt文本，支持自动识别，您可以自行修正识别结果...", value='')
         instruct_text = gr.Textbox(label="输入instruct文本", lines=1, placeholder="请输入instruct文本。例如: 用四川话说这句话。", value='')
@@ -434,7 +438,7 @@ def main():
                               inputs=[tts_text, mode_checkbox_group, sft_dropdown, prompt_text, prompt_wav_upload, prompt_wav_record, instruct_text,
                                       seed, stream, speed],
                               outputs=[audio_output_stream, audio_output_normal])
-        mode_checkbox_group.change(fn=change_instruction, inputs=[mode_checkbox_group], outputs=[instruction_text, sft_dropdown, save_spk_btn])
+        mode_checkbox_group.change(fn=change_instruction, inputs=[mode_checkbox_group], outputs=[instruction_text, choice_sft_spk, save_spk_btn])
         prompt_wav_upload.change(fn=prompt_wav_recognition, inputs=[prompt_wav_upload], outputs=[prompt_text])
         prompt_wav_record.change(fn=prompt_wav_recognition, inputs=[prompt_wav_record], outputs=[prompt_text])
 
@@ -493,5 +497,10 @@ if __name__ == '__main__':
     default_data = np.zeros(cosyvoice.sample_rate)
 
     #model_dir = "iic/SenseVoiceSmall" # $HOME/.cache/modelscope/hub/iic/SenseVoiceSmall
-    asr_model = AutoModel( model=args.asr_model_dir, disable_update=True, log_level=args.log_level, device="cuda:0")
+    if args.asr_model_dir == 'iic/SenseVoiceSmall':
+        asr_model_dir = Path(f'{ROOT_DIR}/pretrained_models/modelscope/hub/iic/SenseVoiceSmall').as_posix()
+    else:
+        asr_model_dir = args.asr_model_dir
+    print(f"device=f'{device_str}'\nasr_model_dir={asr_model_dir}")
+    asr_model = AutoModel( model=asr_model_dir, disable_update=True, log_level=args.log_level, device=f'{device_str}')
     main()
