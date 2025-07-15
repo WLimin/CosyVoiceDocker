@@ -59,7 +59,8 @@ instruct_dict = {'预训练音色': '1. 选择预训练音色\n2. 点击生成�
 stream_mode_list = [('否', False), ('是', True)]
 max_val = 0.8
 model_versions = None
-device_str = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+#device_str = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device_str = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def refresh_sft_spk():
     """刷新音色选择列表 """
@@ -108,17 +109,17 @@ def change_sfts_prompt(filename):
         #生成临时音频文件并返回
         ref_audio = f"/tmp/t-refaudio.wav"
         try:
-            voice_data = torch.load(full_path, map_location=f'{device_str}')
+            voice_data = torch.load(full_path, map_location=torch.device(device_str))
             buffer = io.BytesIO()
-           
-            torchaudio.save(buffer, voice_data.get('audio_ref'), 16000, format="wav")
+            audio_ref= voice_data.get('audio_ref').to('cpu')
+            torchaudio.save(buffer, audio_ref, 16000, format="wav")  # ERROR: Input tensor has to be on CPU.
             buffer.seek(0)
             # 打开文件用于写入二进制数据
             with open(ref_audio,'wb') as file:
                 file.write(buffer.getvalue())
             full_path=ref_audio
         except Exception as e:
-            logging.error(f"加载外置音色文件失败: {e}")
+            logging.error(f"change_sfts_prompt 加载外置音色文件失败: {e}")
             return None
     else:
         logging.warning(f"外置音色文件不存在: {full_path}")
@@ -189,23 +190,23 @@ def load_voice_data(voice_path):
     """加载音色文件中内置的音频数据，16000,1ch,wav"""
     try:
         #device_str = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        voice_data = torch.load(voice_path, map_location=f'{device_str}') if os.path.exists(voice_path) else None
+        voice_data = torch.load(voice_path, map_location=torch.device(device_str)) if os.path.exists(voice_path) else None
         return voice_data.get('audio_ref') if voice_data else None
     except Exception as e:
-        logging.error(f"加载音色文件失败: {e}")
+        logging.error(f"load_voice_data 加载音色文件失败: {e}")
         return None
 
 def load_voice_pt(voice_path):
     """加载音色文件中内置的音频数据和文本（或许）"""
     try:
         #device_str = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        voice_data = torch.load(voice_path, map_location=f'{device_str}') if os.path.exists(voice_path) else None
-        
+        voice_data = torch.load(voice_path, map_location=torch.device(device_str)) if os.path.exists(voice_path) else None
+
         voice = voice_data.get('audio_ref') if voice_data else None
         text_ref = voice_data.get('text_ref') if voice_data else None
         return voice, text_ref
     except Exception as e:
-        logging.error(f"加载音色文件失败: {e}")
+        logging.error(f"load_voice_pt 加载扩展音色文件失败: {e}")
         return None
 
 def validate_input(mode, tts_text, sft_dropdown, prompt_text, prompt_wav, instruct_text):
@@ -257,7 +258,7 @@ def validate_input(mode, tts_text, sft_dropdown, prompt_text, prompt_wav, instru
     # zero_shot mode only use prompt_wav prompt text
     if mode in ['3s极速复刻']:
         if prompt_text == '':
-        	return False, 'prompt文本为空，您是否忘记输入prompt文本？'
+            return False, 'prompt文本为空，您是否忘记输入prompt文本？'
         if instruct_text != '':
             gr.Info('您正在使用3s极速复刻模式，预训练音色/instruct文本会被忽略！')
 
@@ -366,8 +367,8 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
                 yield (cosyvoice.sample_rate, default_data), None
                 return
             #else:
-            #	prompt_speech_16k.
-            	
+            #   prompt_speech_16k.
+
             if prompt_text is None:
                 gr.Warning('预置音色文件中缺少prompt_text数据！')
 
@@ -474,7 +475,7 @@ def main():
                     interactive=True
                 )
                 refresh_button = gr.Button("刷新参考音频")
-                
+
         # 文本输入区域
         prompt_text = gr.Textbox(label="输入prompt文本", lines=1, placeholder="请输入prompt文本，支持自动识别，您可以自行修正识别结果...", value='')
         instruct_text = gr.Textbox(label="输入instruct文本", lines=1, placeholder="请输入instruct文本。例如: 用四川话说这句话。", value='')
@@ -575,7 +576,7 @@ if __name__ == '__main__':
     sft_spk = refresh_sft_spk()['choices']
     reference_wavs = refresh_prompt_wav()['choices']
     ref_sfts_prompts = refresh_sfts_prompt()['choices']
-    
+
     if len(sft_spk) == 0:
         sft_spk = ['']
 
@@ -588,5 +589,5 @@ if __name__ == '__main__':
     else:
         asr_model_dir = args.asr_model_dir
     print(f"device=f'{device_str}'\nasr_model_dir={asr_model_dir}")
-    asr_model = AutoModel( model=asr_model_dir, disable_update=True, log_level=args.log_level, device=f'{device_str}')
+    asr_model = AutoModel( model=asr_model_dir, disable_update=True, log_level=args.log_level, device=device_str)
     main()
