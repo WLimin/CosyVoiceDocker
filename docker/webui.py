@@ -26,6 +26,7 @@ from funasr.utils.postprocess_utils import rich_transcription_postprocess
 import shutil
 import time
 from pathlib import Path
+import io
 
 # 设置环境变量禁用tokenizers并行处理
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -35,8 +36,9 @@ ROOT_DIR = Path(__file__).parent.as_posix()
 print(f"ROOT_DIR={ROOT_DIR}")
 sys.path.append('{}/third_party/Matcha-TTS'.format(ROOT_DIR))
 
-voices_dir = Path(f'{ROOT_DIR}/pretrained_models/voices').as_posix()
-print(f"voices_dir={voices_dir}")
+voices_dir = Path(f'{ROOT_DIR}/pretrained_models/voices').as_posix()    #外置音色文件目录，扩展名 .pt
+asset_dir = Path(f'{ROOT_DIR}/asset').as_posix()    #参考音频文件目录
+print(f"voices_dir={voices_dir}\nasset_dir={asset_dir}")
 
 from cosyvoice.cli.cosyvoice import CosyVoice, CosyVoice2
 from cosyvoice.utils.file_utils import load_wav, logging
@@ -63,7 +65,7 @@ def refresh_sft_spk():
     """刷新音色选择列表 """
     # 获取自定义音色
     files = [(entry.name, entry.stat().st_mtime) for entry in os.scandir(f"{voices_dir}")]
-    files.sort(key=lambda x: x[1], reverse=True) # 按时间排序
+    files.sort(key=lambda x: x[0], reverse=False) # 按名字排序
 
     # 添加预训练音色
     choices = [f[0].replace(".pt", "") for f in files] + cosyvoice.list_available_spks()
@@ -73,11 +75,22 @@ def refresh_sft_spk():
 
     return {"choices": choices, "__type__": "update"}
 
+def refresh_sfts_prompt():
+    """刷新 ${voices_dir} 提示音色选择列表"""
+    files = [(entry.name, entry.stat().st_mtime) for entry in os.scandir(f"{voices_dir}") if entry.is_file() and os.path.splitext(entry.name)[1].lower() in ['.pt']]
+    #files.sort(key=lambda x: x[1], reverse=True)  # 按时间排序
+    files.sort(key=lambda x: x[0])
+    choices = ["请选择提示音色"] + [f[0].replace(".pt", "") for f in files]
+
+    if not choices:
+        choices = ['']
+
+    return {"choices": choices, "__type__": "update"}
 
 def refresh_prompt_wav():
-    """刷新音频选择列表"""
-    files = [(entry.name, entry.stat().st_mtime) for entry in os.scandir(f"{voices_dir}")]
-    files.sort(key=lambda x: x[1], reverse=True)  # 按时间排序
+    """刷新${root_dir/asset/}参考音频选择列表"""
+    files = [(entry.name, entry.stat().st_mtime) for entry in os.scandir(f"{asset_dir}") if entry.is_file() and os.path.splitext(entry.name)[1].lower() in ['.wav', '.mp3']]
+    files.sort(key=lambda x: x[0], reverse=False)  # 按名字排序
     choices = ["请选择参考音频或者自己上传"] + [f[0] for f in files]
 
     if not choices:
@@ -85,23 +98,38 @@ def refresh_prompt_wav():
 
     return {"choices": choices, "__type__": "update"}
 
+def change_sfts_prompt(filename):
+    """切换外置音色文件，待改进
+        .pt 文件中已经包含了该音色所需要的张量数据。但是需要修改前端支持。
+        暂时采用生成临时语音文件的办法来绕过。
+    """
+    full_path = f"{voices_dir}/{filename}.pt"
+    if os.path.exists(full_path):
+        #生成临时音频文件并返回
+        ref_audio = f"/tmp/t-refaudio.wav"
+        try:
+            voice_data = torch.load(full_path, map_location=f'{device_str}')
+            buffer = io.BytesIO()
+           
+            torchaudio.save(buffer, voice_data.get('audio_ref'), 16000, format="wav")
+            buffer.seek(0)
+            # 打开文件用于写入二进制数据
+            with open(ref_audio,'wb') as file:
+                file.write(buffer.getvalue())
+            full_path=ref_audio
+        except Exception as e:
+            logging.error(f"加载外置音色文件失败: {e}")
+            return None
+    else:
+        logging.warning(f"外置音色文件不存在: {full_path}")
+        return None
+
+    return full_path
 
 def change_prompt_wav(filename):
-    """切换参考音频或预置音色文件"""
-    full_path = f"{voices_dir}/{filename}"
+    """切换参考音频文件"""
+    full_path = f"{asset_dir}/{filename}"
     if not os.path.exists(full_path):
-        full_path = f"{voices_dir}/{filename}.pt"
-        if os.path.exists(full_path):
-            #生成临时音频文件并返回
-            ref_audio = f"{tmp_dir}/-refaudio-{time.time()}.wav"
-            try:
-                voice_data = torch.load(full_path, map_location=f'{device_str}')
-                torchaudio.save(ref_audio, torch.load(voice_path, map_location=f'{device_str}') , format="wav")
-                full_path=ref_audio
-            except Exception as e:
-                logging.error(f"加载音色文件失败: {e}")
-                return None
-        else:
             logging.warning(f"音频文件不存在: {full_path}")
             return None
 
@@ -115,7 +143,7 @@ def save_voice_model(voice_name):
 
     try:
         shutil.copyfile(f"{ROOT_DIR}/output.pt", f"{voices_dir}/{voice_name}.pt")
-        gr.Info("音色保存成功,存放位置为voices目录")
+        gr.Info(f"音色成功保存为'{voices_dir}/{voice_name}.pt'.")
         return True
     except Exception as e:
         logging.error(f"保存音色失败: {e}")
@@ -129,24 +157,6 @@ def generate_seed():
         "__type__": "update",
         "value": seed
     }
-
-
-def postprocess(speech, top_db=60, hop_length=220, win_length=440):
-    """音频后处理方法"""
-    # 修剪静音部分
-    speech, _ = librosa.effects.trim(
-        speech, top_db=top_db,
-        frame_length=win_length,
-        hop_length=hop_length
-    )
-
-    # 音量归一化
-    if speech.abs().max() > max_val:
-        speech = speech / speech.abs().max() * max_val
-
-    # 添加尾部静音
-    speech = torch.concat([speech, torch.zeros(1, int(cosyvoice.sample_rate * 0.2))], dim=1)
-    return speech
 
 def change_instruction(mode_checkbox_group):
     """切换模式的处理"""
@@ -176,7 +186,7 @@ def prompt_wav_recognition(prompt_wav):
         return ''
 
 def load_voice_data(voice_path):
-    """加载音色文件中内置的音频数据"""
+    """加载音色文件中内置的音频数据，16000,1ch,wav"""
     try:
         #device_str = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         voice_data = torch.load(voice_path, map_location=f'{device_str}') if os.path.exists(voice_path) else None
@@ -252,6 +262,23 @@ def validate_input(mode, tts_text, sft_dropdown, prompt_text, prompt_wav, instru
             gr.Info('您正在使用3s极速复刻模式，预训练音色/instruct文本会被忽略！')
 
     return True, ''
+
+def postprocess(speech, top_db=60, hop_length=220, win_length=440):
+    """音频后处理方法"""
+    # 修剪静音部分
+    speech, _ = librosa.effects.trim(
+        speech, top_db=top_db,
+        frame_length=win_length,
+        hop_length=hop_length
+    )
+
+    # 音量归一化
+    if speech.abs().max() > max_val:
+        speech = speech / speech.abs().max() * max_val
+
+    # 添加尾部静音
+    speech = torch.concat([speech, torch.zeros(1, int(cosyvoice.sample_rate * 0.2))], dim=1)
+    return speech
 
 def process_audio(speech_generator, stream):
     """处理音频生成
@@ -415,7 +442,7 @@ def main():
             instruction_text = gr.Text(label="操作步骤", value=instruct_dict[inference_mode_list[0]], scale=3)
             # 音色选择部分
             with gr.Column(scale=1) as choice_sft_spk:
-                sft_dropdown = gr.Dropdown(choices=sft_spk, label='选择预训练音色', value=sft_spk[0])
+                sft_dropdown = gr.Dropdown(choices=sft_spk, label='选择预训练/外置音色', value=sft_spk[0])
                 refresh_voice_button = gr.Button("刷新音色")
 
             # 流式控制和速度调节
@@ -432,6 +459,14 @@ def main():
             prompt_wav_upload = gr.Audio(sources='upload', type='filepath', label='选择prompt音频文件，注意采样率不低于16khz', scale=2)
             prompt_wav_record = gr.Audio(sources='microphone', type='filepath', label='录制prompt音频文件', scale=2)
             with gr.Column(scale=1):
+                ref_sfts_dropdown = gr.Dropdown(
+                    label="外置音色列表",
+                    choices=ref_sfts_prompts,
+                    value="请选择提示音色",
+                    interactive=True
+                )
+                refresh_ref_sfts_button = gr.Button("刷新提示音色")
+            with gr.Column(scale=1):
                 wavs_dropdown = gr.Dropdown(
                     label="参考音频列表",
                     choices=reference_wavs,
@@ -439,6 +474,7 @@ def main():
                     interactive=True
                 )
                 refresh_button = gr.Button("刷新参考音频")
+                
         # 文本输入区域
         prompt_text = gr.Textbox(label="输入prompt文本", lines=1, placeholder="请输入prompt文本，支持自动识别，您可以自行修正识别结果...", value='')
         instruct_text = gr.Textbox(label="输入instruct文本", lines=1, placeholder="请输入instruct文本。例如: 用四川话说这句话。", value='')
@@ -476,6 +512,10 @@ def main():
         refresh_voice_button.click(fn=refresh_sft_spk, inputs=[], outputs=[sft_dropdown])
         refresh_button.click(fn=refresh_prompt_wav, inputs=[], outputs=[wavs_dropdown])
         wavs_dropdown.change(change_prompt_wav, inputs=[wavs_dropdown], outputs=[prompt_wav_upload])
+
+        ref_sfts_dropdown.change(change_sfts_prompt, inputs=[ref_sfts_dropdown], outputs=[prompt_wav_upload]) #提示音色列表选择
+        refresh_ref_sfts_button.click(fn=refresh_sfts_prompt, inputs=[], outputs=[ref_sfts_dropdown]) #刷新提示音色
+
         save_button.click(save_voice_model, inputs=[new_name])
         seed_button.click(generate_seed, inputs=[], outputs=seed)
         generate_button.click(generate_audio,
@@ -534,6 +574,8 @@ if __name__ == '__main__':
 
     sft_spk = refresh_sft_spk()['choices']
     reference_wavs = refresh_prompt_wav()['choices']
+    ref_sfts_prompts = refresh_sfts_prompt()['choices']
+    
     if len(sft_spk) == 0:
         sft_spk = ['']
 
