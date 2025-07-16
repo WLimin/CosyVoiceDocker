@@ -29,7 +29,7 @@ fi
 #RUN_USE_GPU="--name cosy-voice "
 
 #CAPABILITIES=api|web|all
-CAPABILITIES=all
+CAPABILITIES=web
 docker run -itd $RUN_USE_GPU \
     --network=${DOCKER_NET} \
 	-p 8086:8080 -p 8087:8000 \
@@ -40,22 +40,18 @@ docker run -itd $RUN_USE_GPU \
 	-e MODEL_PATH=pretrained_models/CosyVoice2-0.5B \
  cosyvoice-gpu
  
+# 容器运行补丁
+# 从外置文件生成内置音色错误
+docker cp cosy-voice:/workspace/CosyVoice/cosyvoice/cli/cosyvoice.py /tmp/cosyvoice.py
+patch -Np1 /tmp/cosyvoice.py < ${VOLUMES}/docker/zero_shot_sft.patch
+docker cp /tmp/cosyvoice.py cosy-voice:/workspace/CosyVoice/cosyvoice/cli/cosyvoice.py
+
 #解决让人讨厌的不联网出错退出，本地应该下载模型文件
+# wetext: 确认文件方法： grep -Er 'wetext' ${VOLUMES}/CosyVoice
 WETXT_CACHE=${VOLUMES}/pretrained_models/modelscope/hub/pengzhendong/wetext
 USER_NAME=webui
 if [ -d ${WETXT_CACHE} ]; then
     docker cp  cosy-voice:/opt/conda/lib/python3.11/site-packages/wetext/wetext.py /tmp/wetext.py
     sed -i -e "s#snapshot_download(\"pengzhendong/wetext\")#\"/home/${USER_NAME}/.cache/modelscope/hub/pengzhendong/wetext\"#g" /tmp/wetext.py 
     docker cp  /tmp/wetext.py cosy-voice:/opt/conda/lib/python3.11/site-packages/wetext/wetext.py 
-
-#FunASR
-#/home/webui/.cache/modelscope/hub/iic/SenseVoiceSmall
-
-#/opt/conda/lib/python3.11/site-packages/funasr/download/runtime_sdk_download_tool.py
-#/opt/conda/lib/python3.11/site-packages/funasr/download/download_model_from_hub.py
-
-#download/runtime_sdk_download_tool.py:            model_dir = snapshot_download(
-#download/download_model_from_hub.py:        model_cache_dir = snapshot_download(
-#download/download_model_from_hub.py:    model_cache_dir = snapshot_download(model)
-
 fi

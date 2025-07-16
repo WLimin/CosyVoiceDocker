@@ -136,20 +136,62 @@ def change_prompt_wav(filename):
 
     return full_path
 
-def save_voice_model(voice_name):
-    """保存音色模型"""
+def save_voice_model(voice_name, prompt_text, prompt_wav_upload, prompt_wav_record):
+    """保存为内置音色模型"""
     if not voice_name:
         gr.Info("音色名称不能为空")
         return False
+    if voice_name in cosyvoice.list_available_spks(): #是否已经存在
+        gr.Info("音色名称已经存在。如更新，需删除后保存。")
+        return False
 
+    # 处理prompt音频输入
+    if prompt_wav_upload is not None:
+        prompt_speech_16k = prompt_wav_upload
+    elif prompt_wav_record is not None:
+        prompt_speech_16k = prompt_wav_record
+    else:
+        prompt_speech_16k = None
+    # 验证输入
+    if not prompt_speech_16k:
+        gr.Warning('prompt音频为空，您是否忘记输入prompt音频？')
+        return False
+    if torchaudio.info(prompt_speech_16k).sample_rate < prompt_sr:
+        gr.Warning(f'prompt音频采样率{torchaudio.info(prompt_wav).sample_rate}低于{prompt_sr}')
+        return False
+    if prompt_text == '':
+        gr.Warning('prompt文本为空，您是否忘记输入prompt文本？')
+        return False
     try:
-        shutil.copyfile(f"{ROOT_DIR}/output.pt", f"{voices_dir}/{voice_name}.pt")
-        gr.Info(f"音色成功保存为'{voices_dir}/{voice_name}.pt'.")
-        return True
+        # print(prompt_text, prompt_speech_16k, voice_name)
+        prompt_speech = load_wav(prompt_speech_16k, 16000)
+        if cosyvoice.add_zero_shot_spk(prompt_text, prompt_speech, voice_name):
+            cosyvoice.save_spkinfo()
+            gr.Info(f"音色成功保存为:'{voice_name}'.")
+            return True
     except Exception as e:
         logging.error(f"保存音色失败: {e}")
         gr.Warning("保存音色失败")
+
+    return False
+
+def remove_voice_model(voice_name):
+    """删除指定的内置音色模型"""
+    if not voice_name:
+        gr.Info("音色名称不能为空")
         return False
+    if voice_name not in cosyvoice.list_available_spks(): #是否已经存在
+        gr.Info(f"音色名称'{voice_name}'不存在。")
+        return False
+    try:
+        del cosyvoice.frontend.spk2info[voice_name]
+        cosyvoice.save_spkinfo()
+        gr.Info(f"成功删除音色:'{voice_name}'.")
+    except Exception as e:
+        logging.error(f"删除音色失败: {e}")
+        gr.Warning("删除音色失败")
+        return False
+    return True
 
 def generate_seed():
     """生成随机种子"""
@@ -483,7 +525,9 @@ def main():
          # 保存音色按钮（默认隐藏）
         with gr.Row(visible=False) as save_spk_btn:
             new_name = gr.Textbox(label="输入新的音色名称", lines=1, placeholder="输入新的音色名称.", value='', scale=2)
-            save_button = gr.Button(value="保存音色模型", scale=1)
+            with gr.Column(scale=1):
+                save_button = gr.Button(value="保存音色模型", scale=1)
+                remove_button = gr.Button(value="删除音色模型", scale=1)
 
         # 生成按钮
         generate_button = gr.Button("生成音频")
@@ -517,7 +561,9 @@ def main():
         ref_sfts_dropdown.change(change_sfts_prompt, inputs=[ref_sfts_dropdown], outputs=[prompt_wav_upload]) #提示音色列表选择
         refresh_ref_sfts_button.click(fn=refresh_sfts_prompt, inputs=[], outputs=[ref_sfts_dropdown]) #刷新提示音色
 
-        save_button.click(save_voice_model, inputs=[new_name])
+        save_button.click(save_voice_model, inputs=[new_name, prompt_text, prompt_wav_upload, prompt_wav_record])		# 保存为内置音色
+        remove_button.click(remove_voice_model, inputs=[new_name])		# 删除指定的内置音色
+        
         seed_button.click(generate_seed, inputs=[], outputs=seed)
         generate_button.click(generate_audio,
                               inputs=[tts_text, mode_checkbox_group, sft_dropdown, prompt_text, prompt_wav_upload, prompt_wav_record, instruct_text,
