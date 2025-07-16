@@ -30,6 +30,7 @@ sys.path.append(f'{root_dir}/third_party/Matcha-TTS')
 
 model_dir = Path(f'{root_dir}/pretrained_models/CosyVoice2-0.5B').as_posix()
 voices_dir = Path(f'{root_dir}/pretrained_models/voices').as_posix()
+asset_dir = Path(f'{root_dir}/asset').as_posix()
 
 tmp_dir = Path(f'{root_dir}/tmp').as_posix()
 logs_dir = Path(f'{root_dir}/logs').as_posix()
@@ -96,15 +97,23 @@ check_tts_model()
 # 默认模型音色
 default_voices = tts_model.list_available_spks()
 # 中文模型音色列表，可能和default_voices重复
-VOICE_LIST = ['中文女', '中文男', '日语男', '粤语女', '英文女', '英文男', '韩语女']
+#VOICE_LIST = default_voices #['中文女', '中文男', '日语男', '粤语女', '英文女', '英文男', '韩语女']
+
 # 自定义音色库，存放在voices_dir
 spk_custom = []
 for name in os.listdir(f"{voices_dir}/"):
     print(name.replace(".pt", ""))
     spk_custom.append(name.replace(".pt", ""))
 
+# wav等文件目录列表
+#${root_dir/asset/}参考音频选择列表
+files = [(entry.name, entry.stat().st_mtime) for entry in os.scandir(f"{asset_dir}") if entry.is_file() and os.path.splitext(entry.name)[1].lower() in ['.wav', '.mp3']]
+files.sort(key=lambda x: x[0], reverse=False)  # 按名字排序
+asset_wav_list = [f[0] for f in files]
+
 print("默认音色", default_voices)
 print("自定义音色", spk_custom)
+print("外置声音文件", asset_wav_list)
 
 # ========== 工具函数 =============
 def base64_to_wav(encoded_str, output_path):
@@ -173,7 +182,6 @@ def get_params(req):
 
     return params
 
-
 def del_tmp_files(tmp_files: list):
     """ 删除临时碎片语音文件 """
     print('正在删除缓存文件...')
@@ -235,12 +243,12 @@ def batch(tts_type, outname, params):
 
             prompt_speech_16k = load_wav(ref_audio, 16000)
 
-        if not params.get('reference_text') or params.get('reference_text') == '':
-            # 打开参考文本文件并读取所有内容
-            if os.path.exists(f"{root_dir}/asset/{params['reference_audio']}.txt"):
-                with open(f"{root_dir}/asset/{params['reference_audio']}.txt", 'r', encoding='utf-8') as file:
-                    reference_text = file.read()
-                    params['reference_text'] = reference_text
+#        if not params.get('reference_text') or params.get('reference_text') == '':
+#            # 打开参考文本文件并读取所有内容
+#            if os.path.exists(f"{root_dir}/asset/{params['reference_audio']}.txt"):
+#                with open(f"{root_dir}/asset/{params['reference_audio']}.txt", 'r', encoding='utf-8') as file:
+#                    reference_text = file.read()
+#                    params['reference_text'] = reference_text
     
     streaming = int(params.get('streaming', 0))
     format = params.get('format', 'wav')
@@ -363,10 +371,10 @@ def get_speakers():
 
     for x in default_voices:
         voices.append({"name": x, "voice_id": x})
-
-    for name in os.listdir(f"{voices_dir}/"):
-        name = name.replace(".pt", "")
-        voices.append({"name": name, "voice_id": name})
+    for x in spk_custom:
+        voices.append({"name": x, "voice_id": x})
+    for x in asset_wav_list:
+        voices.append({"name": x, "voice_id": x})
 
     response = app.response_class(response=json.dumps(voices), status=200, mimetype='application/json')
     return response
@@ -375,15 +383,7 @@ def get_speakers():
 @app.route('/v1/audio/voices', methods=['GET', 'POST'])
 def get_voices():
     """获取角色名称"""
-    speakers = VOICE_LIST
-
-    for x in default_voices:
-        speakers.append(x)
-
-    for name in os.listdir(f"{voices_dir}/"):
-        name = name.replace(".pt", "")
-        speakers.append(name)
-
+    speakers = default_voices + spk_custom + asset_wav_list
     return {"available_speakers": list(speakers)}
 
 
@@ -411,7 +411,9 @@ def audio_speech():
     params['text'] = text
     params['speed'] = speed
     api_name = 'tts'
-    # 处理随机数种子，在最前，以*分割
+
+    # 处理指令列表字符串
+    # 随机数种子，在最前，以*分割
     if voice != '':
         if '*' in voice:
             [seedstr, voicestr] = voice.split('*', 1)
@@ -422,28 +424,69 @@ def audio_speech():
         # <4294967295,0xffffffff,
         seed = int(seedstr) & 0xffffffff
     print(f'\nApi:input={seedstr}*{voicestr}, Seed={seed},RoleInstruct={voice}')
-
-    if voice in VOICE_LIST or voice in default_voices:
+    # 处理内置音色或其他音色
+    if voice in default_voices: # 内置音色
         params['role'] = voice
-    elif voice != '':
-        if ':' in voice:
+    elif voice != '': # 其他音色或指令
+        if ':' in voice: # ：符号分割音色和推理指令
             [voicestr, instruct] = voice.split(':', 1)
         else:
             voicestr = voice
             instruct = ''
 
-        if Path(voicestr).exists() or Path(f'{root_dir}/asset/{voicestr}').exists():
-            params['reference_audio'] = voicestr
-            if instruct == '':
-                api_name = 'clone'
-            else:
-                api_name = 'instruct'
-                params['instruct_text'] = instruct
-        else:
-            return jsonify({"error": {"message": f"参考音频路径不存在", "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+        # 处理其它音色或功能
+        if voicestr in spk_custom:
+            if Path(f"{voices_dir}/{voicestr}.pt").exists():
+                #生成临时音频文件并返回
+                ref_audio = f"/tmp/t-refaudio.wav"
+                full_path = f"{voices_dir}/{voicestr}.pt"
 
-    else:
-        return jsonify({"error": {"message": f"必须填写配音角色名或参考音频路径", "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+                try:
+                    voice_data = torch.load(full_path, map_location=torch.device(device_str))
+                    buffer = io.BytesIO()
+                    audio_ref= voice_data.get('audio_ref').to('cpu')
+                    torchaudio.save(buffer, audio_ref, 16000, format="wav")  # ERROR: Input tensor has to be on CPU.
+                    buffer.seek(0)
+                    # 打开文件用于写入二进制数据
+                    with open(ref_audio,'wb') as file:
+                        file.write(buffer.getvalue())
+
+                    # 打开参考文本文件并读取所有内容
+                    reference_text = voice_data.get('text_ref')
+                    params['reference_text'] = reference_text
+
+                except Exception as e:
+                    return jsonify({"error": {"message": f"加载外置音色文件'{full_path}'失败", "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+
+                params['reference_audio'] = ref_audio
+                if instruct == '':
+                    api_name = 'clone'
+                else:
+                    api_name = 'instruct'
+                    params['instruct_text'] = instruct
+            else:
+                return jsonify({"error": {"message": f"参考外置音色文件'{voices_dir}/{voicestr}.pt'不存在", "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+        elif voicestr in asset_wav_list:
+            ref_audio = f'{asset_dir}/{voicestr}'
+            if Path(ref_audio).exists():
+                params['reference_audio'] = ref_audio
+                if instruct == '':
+                    api_name = 'clone'
+                else:
+                    api_name = 'instruct'
+                    params['instruct_text'] = instruct
+            
+                # 打开参考文本文件并读取所有内容
+                if os.path.exists(f"{ref_audio}.txt"):
+                    with open(f"{ref_audio}.txt", 'r', encoding='utf-8') as file:
+                        reference_text = file.read()
+                        params['reference_text'] = reference_text
+                else:
+                    return jsonify({"error": {"message": f"参考音频提示文件'{ref_audio}.txt'不存在", "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+            else:
+                return jsonify({"error": {"message": f"参考音频文件'{ref_audio}'不存在", "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+        else:
+            return jsonify({"error": {"message": f"必须填写配音角色名或参考音频路径", "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
 
     filename = f'openai-{len(text)}-{speed}-{time.time()}-{seed}-{random.randint(1000,99999)}.wav'
     try:
