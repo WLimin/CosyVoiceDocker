@@ -29,7 +29,7 @@ fi
 #RUN_USE_GPU="--name cosy-voice "
 
 #CAPABILITIES=api|web|all
-CAPABILITIES=all
+CAPABILITIES=web
 docker run -itd $RUN_USE_GPU \
     --network=${DOCKER_NET} \
 	-p 8086:8080 -p 8087:8000 \
@@ -40,6 +40,12 @@ docker run -itd $RUN_USE_GPU \
 	-e MODEL_PATH=pretrained_models/CosyVoice2-0.5B \
  cosyvoice-gpu
  
+# 容器运行补丁
+# 从外置文件生成内置音色错误
+docker cp cosy-voice:/workspace/CosyVoice/cosyvoice/cli/cosyvoice.py /tmp/cosyvoice.py
+patch -Np1 /tmp/cosyvoice.py < ${VOLUMES}/docker/zero_shot_sft.patch
+docker cp /tmp/cosyvoice.py cosy-voice:/workspace/CosyVoice/cosyvoice/cli/cosyvoice.py
+
 #解决让人讨厌的不联网出错退出，本地应该下载模型文件
 WETXT_CACHE=${VOLUMES}/pretrained_models/modelscope/hub/pengzhendong/wetext
 USER_NAME=webui
