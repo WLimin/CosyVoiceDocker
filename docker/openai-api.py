@@ -204,11 +204,10 @@ def load_pt_voice_data(speaker):
 def process_audio(tts_speeches, sample_rate=prompt_sr, format="wav"):
     """处理音频数据并返回响应"""
     buffer = io.BytesIO()
-    audio_data = torch.concat(tts_speeches, dim=1)
-
     # 原始采样率（CosyVoice 默认为22050）
     original_sr = 22050
-    
+
+    audio_data = torch.concat(tts_speeches if tts_speeches  else [torch.zeros(1, int(original_sr * 0.2))], dim=1)
     # 如果目标采样率与原始采样率不同，进行重采样
     if sample_rate != original_sr:
         resampler = torchaudio.transforms.Resample(orig_freq=original_sr, new_freq=sample_rate)
