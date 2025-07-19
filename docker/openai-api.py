@@ -72,7 +72,6 @@ app.logger.addHandler(file_handler)
 CORS(app, cors_allowed_origins="*")
 # CORS(app, supports_credentials=True)
 
-sft_model = None
 tts_model = None
 seed = 0  # random.randint(1, 100000000)
 
@@ -87,7 +86,7 @@ def check_tts_model():
         # except Exception:
         try:
             #        flag = True
-            tts_model = CosyVoice2(model_dir, load_jit=False, fp16=True, load_trt=False)
+            tts_model = CosyVoice2(model_dir, load_jit=False, fp16=True) #, load_trt=False)
         except Exception:
             raise TypeError('no valid model_type!')
     set_all_random_seed(seed)
@@ -221,7 +220,7 @@ def process_audio(tts_speeches, sample_rate=16000, format="wav"):
 
 def batch(tts_type, outname, params):
     """ 实际批量合成完毕后连接为一个文件 """
-    global sft_model, tts_model, seed
+    global tts_model, seed
     if not shutil.which("ffmpeg"):
         raise Exception('必须安装 ffmpeg')
     prompt_speech_16k = None
@@ -257,11 +256,6 @@ def batch(tts_type, outname, params):
     check_tts_model()
 
     if tts_type == 'tts':
-        # if sft_model is None:
-        #    sft_model = CosyVoice('pretrained_models/CosyVoice-300M-SFT', load_jit=True, fp16=False)
-        # 仅文字合成语音
-        # for i, j in enumerate(sft_model.inference_sft(text, params['role'],stream=False,speed=params['speed'])):
-        #    audio_list.append(j['tts_speech'])
         inference_func = lambda: tts_model.inference_sft(text, params['role'], stream=False, speed=params['speed'])
         
 
