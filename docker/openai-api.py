@@ -241,21 +241,21 @@ def batch(tts_type, outname, params):
                 raise Exception(f'处理参考音频失败:{e}')
             prompt_speech_16k = load_wav(ref_audio, prompt_sr)
 
-    streaming = int(params.get('streaming', 0))
+    streaming = bool(int(params.get('streaming', 0)))
     format = params.get('format', 'wav')
     text = params['text']
-    speed = params['speed']
+    speeding = params['speed']
     audio_list = []
     check_tts_model()
 
     if tts_type == 'tts':
-        inference_func = lambda: tts_model.inference_sft(text, params['role'], stream=False, speed=speed)
+        inference_func = lambda: tts_model.inference_sft(text, params['role'], stream=streaming, speed=speeding)
     elif tts_type == 'clone_eq' and params.get('reference_text'):
-        inference_func = lambda: tts_model.inference_zero_shot(text, params.get('reference_text'), prompt_speech_16k, stream=False, speed=speed)
+        inference_func = lambda: tts_model.inference_zero_shot(text, params.get('reference_text'), prompt_speech_16k, stream=streaming, speed=speeding)
     elif tts_type == 'instruct' and params.get('instruct_text'):
-        inference_func = lambda: tts_model.inference_instruct2(text, params.get('instruct_text'), prompt_speech_16k, stream=False)
+        inference_func = lambda: tts_model.inference_instruct2(text, params.get('instruct_text'), prompt_speech_16k, stream=streaming)
     else:  # default clone or clone_mul
-        inference_func = lambda: tts_model.inference_cross_lingual(text, prompt_speech_16k, stream=False, speed=speed)
+        inference_func = lambda: tts_model.inference_cross_lingual(text, prompt_speech_16k, stream=streaming, speed=speeding)
 
     # 处理流式输出
     if streaming:
@@ -275,7 +275,7 @@ def batch(tts_type, outname, params):
     for i, j in enumerate(inference_func()):
         audio_list.append(j['tts_speech'])
 
-    audio_data = torch.concat(audio_list, dim=1)
+    audio_data = torch.concat(audio_list if audio_list  else [torch.zeros(1, int(tts_model.sample_rate * 0.2))], dim=1)
 
     # 根据模型设置采样率
     if tts_type == 'tts':

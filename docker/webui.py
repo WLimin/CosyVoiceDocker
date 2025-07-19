@@ -342,7 +342,8 @@ def process_audio(speech_generator, stream):
             yield (cosyvoice.sample_rate, i['tts_speech'].numpy().flatten()), None
 
     if not stream:
-        audio_data = torch.concat(tts_speeches, dim=1)
+        audio_data = torch.concat(tts_speeches if tts_speeches  else [torch.zeros(1, int(cosyvoice.sample_rate * 0.2))], dim=1)
+
         yield None, (cosyvoice.sample_rate, audio_data.numpy().flatten())
 
     yield total_duration
