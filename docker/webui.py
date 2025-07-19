@@ -46,6 +46,7 @@ from cosyvoice.utils.common import set_all_random_seed
 
 #from modelscope import snapshot_download
 #snapshot_download('iic/CosyVoice2-0.5B', local_dir='pretrained_models/CosyVoice2-0.5B')
+# 内置音色列表文件
 #try:
 #    shutil.copy2('spk2info.pt', 'pretrained_models/CosyVoice2-0.5B/spk2info.pt')
 #except Exception as e:
@@ -163,7 +164,7 @@ def save_voice_model(voice_name, prompt_text, prompt_wav_upload, prompt_wav_reco
         gr.Warning('prompt文本为空，您是否忘记输入prompt文本？')
         return False
     try:
-        # print(prompt_text, prompt_speech_16k, voice_name)
+        # logging.info(prompt_text, prompt_speech_16k, voice_name)
         prompt_speech = load_wav(prompt_speech_16k, prompt_sr)
         if cosyvoice.add_zero_shot_spk(prompt_text, prompt_speech, voice_name):
             cosyvoice.save_spkinfo()
@@ -343,7 +344,6 @@ def process_audio(speech_generator, stream):
 
     if not stream:
         audio_data = torch.concat(tts_speeches if tts_speeches  else [torch.zeros(1, int(cosyvoice.sample_rate * 0.2))], dim=1)
-
         yield None, (cosyvoice.sample_rate, audio_data.numpy().flatten())
 
     yield total_duration
@@ -382,9 +382,8 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
     else:
         prompt_wav = None
 
-    # 验证输入
-    is_valid, error_msg = validate_input(mode_checkbox_group, tts_text, sft_dropdown,
-                                       prompt_text, prompt_wav, instruct_text)
+    # 验证 WEB 界面输入条件是否符合要求
+    is_valid, error_msg = validate_input(mode_checkbox_group, tts_text, sft_dropdown, prompt_text, prompt_wav, instruct_text)
     if not is_valid:
         gr.Warning(error_msg)
         yield (cosyvoice.sample_rate, default_data), None
@@ -397,14 +396,14 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
     if mode_checkbox_group == '预训练音色':
         # logging.info('get sft inference request')
         if sft_dropdown in cosyvoice.list_available_spks():
-            print(f"预训练音色:{sft_dropdown}")
+            logging.info(f"预训练音色:{sft_dropdown}")
             generator = cosyvoice.inference_sft(tts_text, sft_dropdown, stream=stream, speed=speed)
         else:
             # 处理外置 prompt音频输入
             voice_path = f"{voices_dir}/{sft_dropdown}.pt"
-            print(f"用'3s极速复刻'模式处理预置音色:{sft_dropdown}，需要'{voice_path}'文件。")
+            logging.info(f"用'3s极速复刻'模式处理预置音色:{sft_dropdown}，需要'{voice_path}'文件。")
             prompt_speech_16k, prompt_text = load_voice_pt(voice_path)
-            print(f"prompt_text='{prompt_text}'")
+            logging.info(f"prompt_text='{prompt_text}'")
             if prompt_speech_16k is None:
                 gr.Warning('预置音色文件中缺少prompt_speech数据！')
                 yield (cosyvoice.sample_rate, default_data), None
@@ -442,6 +441,8 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
         if model_versions == 'V1':
             generator = cosyvoice.inference_instruct(tts_text, sft_dropdown, instruct_text, stream=stream, speed=speed)
         elif model_versions == 'V2':
+            # NOTE if you want to reproduce the results on https://funaudiollm.github.io/cosyvoice2, please add text_frontend=False during inference
+            # tts_text, instruct_text, prompt_speech_16k, zero_shot_spk_id='', stream=False, speed=1.0, text_frontend=True
             generator = cosyvoice.inference_instruct2(tts_text, instruct_text, prompt_speech_16k, stream=stream, speed=speed)
         else:
             gr.Warning('非预期的模型版本！')
@@ -636,6 +637,6 @@ if __name__ == '__main__':
         asr_model_dir = Path(f'{ROOT_DIR}/pretrained_models/modelscope/hub/iic/SenseVoiceSmall').as_posix()
     else:
         asr_model_dir = args.asr_model_dir
-    print(f"device=f'{device_str}'\nasr_model_dir={asr_model_dir}")
+    logging.info(f"device=f'{device_str}'\nasr_model_dir={asr_model_dir}")
     asr_model = AutoModel( model=asr_model_dir, disable_update=True, log_level=args.log_level, device=device_str)
     main()
