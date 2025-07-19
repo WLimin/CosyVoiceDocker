@@ -46,6 +46,11 @@ docker cp cosy-voice:/workspace/CosyVoice/cosyvoice/cli/cosyvoice.py /tmp/cosyvo
 patch -Np1 /tmp/cosyvoice.py < ${VOLUMES}/docker/zero_shot_sft.patch
 docker cp /tmp/cosyvoice.py cosy-voice:/workspace/CosyVoice/cosyvoice/cli/cosyvoice.py
 
+# /workspace/CosyVoice/cosyvoice/cli/model.py:104: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+docker cp cosy-voice:/workspace/CosyVoice/cosyvoice/cli/model.py /tmp/model.py
+patch -Np1 /tmp/model.py < ${VOLUMES}/docker/torch.cuda.amp.autocast.patch
+docker cp /tmp/model.py cosy-voice:/workspace/CosyVoice/cosyvoice/cli/model.py
+
 #解决让人讨厌的不联网出错退出，本地应该下载模型文件
 # wetext: 确认文件方法： grep -Er 'wetext' ${VOLUMES}/CosyVoice
 WETXT_CACHE=${VOLUMES}/pretrained_models/modelscope/hub/pengzhendong/wetext
