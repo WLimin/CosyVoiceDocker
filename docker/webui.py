@@ -399,7 +399,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
             print(f"预训练音色:{sft_dropdown}")
             generator = cosyvoice.inference_sft(tts_text, sft_dropdown, stream=stream, speed=speed)
         else:
-            # 处理prompt音频输入
+            # 处理外置 prompt音频输入
             voice_path = f"{voices_dir}/{sft_dropdown}.pt"
             print(f"用'3s极速复刻'模式处理预置音色:{sft_dropdown}，需要'{voice_path}'文件。")
             prompt_speech_16k, prompt_text = load_voice_pt(voice_path)
@@ -418,6 +418,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
 
     elif mode_checkbox_group == '3s极速复刻':
         logging.info('get zero_shot inference request')
+        # TODO：需要考虑 zero_shot_prompt_id 模式
         prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr))
         generator = cosyvoice.inference_zero_shot(tts_text, prompt_text, prompt_speech_16k, stream=stream, speed=speed)
 
@@ -428,7 +429,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
 
     elif mode_checkbox_group == '自然语言控制':
         logging.info('get instruct inference request')
-
+        # TODO：需要考虑 zero_shot_prompt_id 模式
         voice_path = f"{voices_dir}/{sft_dropdown}.pt"
         prompt_speech_16k = load_voice_data(voice_path)
 
