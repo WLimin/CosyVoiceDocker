@@ -112,7 +112,7 @@ def change_sfts_prompt(filename):
             voice_data = torch.load(full_path, map_location=torch.device(device_str))
             buffer = io.BytesIO()
             audio_ref= voice_data.get('audio_ref').to('cpu')
-            torchaudio.save(buffer, audio_ref, 16000, format="wav")  # ERROR: Input tensor has to be on CPU.
+            torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
             buffer.seek(0)
             # 打开文件用于写入二进制数据
             with open(ref_audio,'wb') as file:
@@ -164,7 +164,7 @@ def save_voice_model(voice_name, prompt_text, prompt_wav_upload, prompt_wav_reco
         return False
     try:
         # print(prompt_text, prompt_speech_16k, voice_name)
-        prompt_speech = load_wav(prompt_speech_16k, 16000)
+        prompt_speech = load_wav(prompt_speech_16k, prompt_sr)
         if cosyvoice.add_zero_shot_spk(prompt_text, prompt_speech, voice_name):
             cosyvoice.save_spkinfo()
             gr.Info(f"音色成功保存为:'{voice_name}'.")
