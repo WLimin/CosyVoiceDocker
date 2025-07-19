@@ -31,8 +31,8 @@ model_dir = Path(f'{root_dir}/pretrained_models/CosyVoice2-0.5B').as_posix()
 voices_dir = Path(f'{root_dir}/pretrained_models/voices').as_posix()
 asset_dir = Path(f'{root_dir}/asset').as_posix()
 
-tmp_dir = Path(f'{root_dir}/tmp').as_posix()
-logs_dir = Path(f'{root_dir}/logs').as_posix()
+tmp_dir = Path(f'/tmp/api').as_posix()
+logs_dir = Path(f'/tmp/logs').as_posix()
 os.makedirs(tmp_dir, exist_ok=True)
 os.makedirs(logs_dir, exist_ok=True)
 
@@ -101,7 +101,7 @@ default_voices = tts_model.list_available_spks()
 # 自定义音色库，存放在voices_dir
 spk_custom = []
 for name in os.listdir(f"{voices_dir}/"):
-    print(name.replace(".pt", ""))
+    #print(name.replace(".pt", ""))
     spk_custom.append(name.replace(".pt", ""))
 
 # wav等文件目录列表
@@ -110,9 +110,9 @@ files = [(entry.name, entry.stat().st_mtime) for entry in os.scandir(f"{asset_di
 files.sort(key=lambda x: x[0], reverse=False)  # 按名字排序
 asset_wav_list = [f[0] for f in files]
 
-print("默认音色", default_voices)
-print("自定义音色", spk_custom)
-print("外置声音文件", asset_wav_list)
+print("    默认音色: ", default_voices)
+print("  自定义音色: ", spk_custom)
+print("外置声音文件: ", asset_wav_list)
 
 # ========== 工具函数 =============
 def base64_to_wav(encoded_str, output_path):
@@ -232,14 +232,13 @@ def batch(tts_type, outname, params):
         else:   #其它参考音频   
             if not params['reference_audio'] or not os.path.exists(f"{root_dir}/asset/{params['reference_audio']}"):
                 raise Exception(f'参考音频未传入或不存在 {params["reference_audio"]}')
-            ref_audio = f"{tmp_dir}/-refaudio-{time.time()}.wav"
+            ref_audio = f"{tmp_dir}/t-refaudio-{time.time()}.wav"
             try:
-                subprocess.run(["ffmpeg", "-hide_banner", "-ignore_unknown", "-y", "-i", f"{root_dir}/asset/{params['reference_audio']}", "-ar", "16000", ref_audio],
+                subprocess.run(["ffmpeg", "-hide_banner", "-ignore_unknown", "-y", "-i", f"{root_dir}/asset/{params['reference_audio']}", "-ar", f"{prompt_sr}", ref_audio],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", check=True, text=True,
                             creationflags=0 if sys.platform != 'win32' else subprocess.CREATE_NO_WINDOW)
             except Exception as e:
                 raise Exception(f'处理参考音频失败:{e}')
-
             prompt_speech_16k = load_wav(ref_audio, prompt_sr)
 
     streaming = int(params.get('streaming', 0))
@@ -251,14 +250,10 @@ def batch(tts_type, outname, params):
 
     if tts_type == 'tts':
         inference_func = lambda: tts_model.inference_sft(text, params['role'], stream=False, speed=speed)
-        
-
     elif tts_type == 'clone_eq' and params.get('reference_text'):
         inference_func = lambda: tts_model.inference_zero_shot(text, params.get('reference_text'), prompt_speech_16k, stream=False, speed=speed)
-
     elif tts_type == 'instruct' and params.get('instruct_text'):
         inference_func = lambda: tts_model.inference_instruct2(text, params.get('instruct_text'), prompt_speech_16k, stream=False)
-    
     else:  # default clone or clone_mul
         inference_func = lambda: tts_model.inference_cross_lingual(text, prompt_speech_16k, stream=False, speed=speed)
 
@@ -288,7 +283,6 @@ def batch(tts_type, outname, params):
     else:
         torchaudio.save(tmp_dir + '/' + outname, audio_data, 24000, format=format)
 
-    del_tmp_files(audio_list)
     print(f"音频文件生成成功：{tmp_dir}/{outname}")
     return send_file(tmp_dir + '/' + outname, mimetype=f'audio/{format}')
 
@@ -429,7 +423,7 @@ def audio_speech():
             full_path = f"{voices_dir}/{voicestr}.pt"
             if Path(full_path).exists():
                 #生成临时音频文件并返回
-                ref_audio = f"/tmp/t-refaudio.wav"
+                ref_audio = f"{tmp_dir}/t-refaudio.wav"
                 try:
                     voice_data = torch.load(full_path, map_location=torch.device(device_str))
                     buffer = io.BytesIO()
@@ -480,7 +474,7 @@ def audio_speech():
         else:
             return jsonify({"error": {"message": f"必须填写配音角色名或参考音频路径", "Exception": f'{e}', "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
 
-    filename = f'openai-{len(text)}-{speed}-{time.time()}-{seed}-{random.randint(1000,99999)}.wav'
+    filename = f'openai-l{len(text)}-s{speed}-{time.time()}-r{seed}-{random.randint(1000,99999)}.wav'
     try:
         return batch(tts_type=api_name, outname=filename, params=params)
 #        return send_file(outname, mimetype='audio/x-wav')
