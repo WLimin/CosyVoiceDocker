@@ -4,14 +4,14 @@ import torchaudio
 from flask_cors import CORS
 import base64
 from cosyvoice.utils.common import set_all_random_seed
-from cosyvoice.utils.file_utils import load_wav
+from cosyvoice.utils.file_utils import load_wav, logging
 from cosyvoice.cli.cosyvoice import CosyVoice, CosyVoice2
 import random
 import datetime
 import shutil
 import subprocess
-from logging.handlers import RotatingFileHandler
-import logging
+#from logging.handlers import RotatingFileHandler
+#import logging
 import os, io, sys
 import time
 import json
@@ -55,17 +55,16 @@ root_log.handlers = []
 root_log.setLevel(logging.WARNING)
 
 app = Flask(__name__, static_folder=tmp_dir, static_url_path='/tmp')
-
 app.logger.setLevel(logging.WARNING)
 # 创建 RotatingFileHandler 对象，设置写入的文件路径和大小限制
-file_handler = RotatingFileHandler(logs_dir+f'/{datetime.datetime.now().strftime("%Y%m%d")}.log', maxBytes=1024 * 1024, backupCount=5)
+#file_handler = RotatingFileHandler(logs_dir+f'/{datetime.datetime.now().strftime("%Y%m%d")}.log', maxBytes=1024 * 1024, backupCount=5)
 # 创建日志的格式
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+#formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 # 设置文件处理器的级别和格式
-file_handler.setLevel(logging.WARNING)
-file_handler.setFormatter(formatter)
+#file_handler.setLevel(logging.WARNING)
+#file_handler.setFormatter(formatter)
 # 将文件处理器添加到日志记录器中
-app.logger.addHandler(file_handler)
+#app.logger.addHandler(file_handler)
 
 CORS(app, cors_allowed_origins="*")
 # CORS(app, supports_credentials=True)
@@ -74,9 +73,11 @@ prompt_sr = 16000 #默认提示采样率
 tts_model = None
 seed = 0  # random.randint(1, 100000000)
 device_str = 'cuda' if torch.cuda.is_available() else 'cpu'
+default_voices = [] # 默认模型音色
+spk_custom = [] # 自定义音色库，存放在voices_dir
+asset_wav_list = []  # wav等文件目录列表, ${root_dir/asset/}参考音频选择列表
 
-# 建立模型实例
-# tts_model=CosyVoice2('pretrained_models/CosyVoice2-0.5B', load_jit=False, fp16=True, load_trt=False)
+# 建立模型实例，考虑空间问题，不再支持V1版本
 def check_tts_model():
     global tts_model, seed
     if tts_model is None:
@@ -90,29 +91,6 @@ def check_tts_model():
         except Exception:
             raise TypeError('no valid model_type!')
     set_all_random_seed(seed)
-
-check_tts_model()
-
-# 默认模型音色
-default_voices = tts_model.list_available_spks()
-# 中文模型音色列表，可能和default_voices重复
-#VOICE_LIST = default_voices #['中文女', '中文男', '日语男', '粤语女', '英文女', '英文男', '韩语女']
-
-# 自定义音色库，存放在voices_dir
-spk_custom = []
-for name in os.listdir(f"{voices_dir}/"):
-    #print(name.replace(".pt", ""))
-    spk_custom.append(name.replace(".pt", ""))
-
-# wav等文件目录列表
-#${root_dir/asset/}参考音频选择列表
-files = [(entry.name, entry.stat().st_mtime) for entry in os.scandir(f"{asset_dir}") if entry.is_file() and os.path.splitext(entry.name)[1].lower() in ['.wav', '.mp3']]
-files.sort(key=lambda x: x[0], reverse=False)  # 按名字排序
-asset_wav_list = [f[0] for f in files]
-
-print("    默认音色: ", default_voices)
-print("  自定义音色: ", spk_custom)
-print("外置声音文件: ", asset_wav_list)
 
 # ========== 工具函数 =============
 def base64_to_wav(encoded_str, output_path):
@@ -129,19 +107,14 @@ def base64_to_wav(encoded_str, output_path):
     with open(output_path, "wb") as wav_file:
         wav_file.write(wav_bytes)
 
-    print(f"WAV file has been saved to {output_path}")
-
+    logging.info(f"WAV file has been saved to {output_path}")
 
 # 获取请求参数
 def get_params(req):
     params = {
-        "text": "",
-        "lang": "",
-        "role": "中文女",
-        "reference_audio": None,
-        "reference_text": "",
-        "speed": 1.0,
-        "streaming": 0
+        "text": "", "lang": "", "role": "中文女",
+        "reference_audio": None, "reference_text": "",
+        "speed": 1.0, "streaming": 0
     }
     # 原始字符串
     params['text'] = req.args.get("text", "").strip() or req.form.get("text", "").strip()
@@ -162,15 +135,11 @@ def get_params(req):
 
     # 流式输出
     streaming = req.args.get("streaming", "").strip() or req.form.get("streaming", '')
-    if streaming == '1':
-        streaming = 1
-    else:
-        streaming = 0
+    streaming = 1 if streaming == '1' else 0
     params['streaming'] = streaming
 
     # 要克隆的音色文件
-    params['reference_audio'] = req.args.get(
-        "reference_audio", None) or req.form.get("reference_audio", None)
+    params['reference_audio'] = req.args.get("reference_audio", None) or req.form.get("reference_audio", None)
     encode = req.args.get('encode', '') or req.form.get('encode', '')
     if encode == 'base64':
         tmp_name = f'tmp/{time.time()}-clone-{len(params["reference_audio"])}.wav'
@@ -183,10 +152,10 @@ def get_params(req):
 
 def del_tmp_files(tmp_files: list):
     """ 删除临时碎片语音文件 """
-    print('正在删除缓存文件...')
+    logging.info('正在删除缓存文件...')
     for f in tmp_files:
         if os.path.exists(f):
-            print('删除缓存文件:', f)
+            logging.info('删除缓存文件:', f)
             os.remove(f)
 
 def load_pt_voice_data(speaker):
@@ -220,7 +189,7 @@ def process_audio(tts_speeches, sample_rate=prompt_sr, format="wav"):
 def batch(tts_type, outname, params):
     """ 实际批量合成完毕后连接为一个文件 """
     global tts_model, seed
-    print(f"tts_type={tts_type}, outname={outname}\nparams={params}")
+    logging.info(f"tts_type={tts_type}, outname={outname}\nparams={params}")
     # 根据传入参数的模式，检查是否需要加载参考音频文件
     prompt_speech_16k = None
     if tts_type != 'tts':
@@ -228,7 +197,7 @@ def batch(tts_type, outname, params):
             prompt_speech_16k = load_wav(params['reference_audio'], prompt_sr) #加载临时文件
             # 参考文本文件内容已经在参数内部了
 
-        else:   #其它参考音频   
+        else:   #其它参考音频
             if not params['reference_audio'] or not os.path.exists(f"{root_dir}/asset/{params['reference_audio']}"):
                 raise Exception(f'参考音频未传入或不存在 {params["reference_audio"]}')
             ref_audio = f"{tmp_dir}/t-refaudio-{time.time()}.wav"
@@ -245,7 +214,7 @@ def batch(tts_type, outname, params):
     text = params['text']
     speeding = params['speed']
     audio_list = []
-    check_tts_model()
+    check_tts_model()   # 主要目的是设置 seed
 
     if tts_type == 'tts':
         inference_func = lambda: tts_model.inference_sft(text, params['role'], stream=streaming, speed=speeding)
@@ -262,14 +231,14 @@ def batch(tts_type, outname, params):
             for _, i in enumerate(inference_func()):
                 buffer = process_audio([i['tts_speech']], format="ogg")
                 yield buffer.read()
-        
+
         response = make_response(generate())
         response.headers.update({
             'Content-Type': 'audio/ogg',
             'Content-Disposition': 'attachment; filename=sound.ogg'
         })
         return response
-    
+
     # 处理非流式输出
     for i, j in enumerate(inference_func()):
         audio_list.append(j['tts_speech'])
@@ -282,7 +251,7 @@ def batch(tts_type, outname, params):
     else:
         torchaudio.save(tmp_dir + '/' + outname, audio_data, 24000, format=format)
 
-    print(f"音频文件生成成功：{tmp_dir}/{outname}")
+    logging.info(f"音频文件生成成功：{tmp_dir}/{outname}")
     return send_file(tmp_dir + '/' + outname, mimetype=f'audio/{format}')
 
 # ============= 4 种合成方式选择 ===========
@@ -298,9 +267,9 @@ def tts():
         # 仅文字合成语音
         outname = f"tts-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S-')}.wav"
         return batch(tts_type='tts', outname=outname, params=params)
-        
+
     except Exception as e:
-        print(e)
+        logging.error(e)
         # 设置状态码为500
         return make_response(jsonify({"code": 2, "msg": str(e)}), 500)
 #    else:
@@ -405,8 +374,8 @@ def audio_speech():
         voice = voicestr
         # <4294967295,0xffffffff,
         seed = int(seedstr) & 0xffffffff
-    print(f'\nApi:input={seedstr}*{voicestr}, Seed={seed},RoleInstruct={voice}')
-   
+    logging.info(f'\nApi:input={seedstr}*{voicestr}, Seed={seed},RoleInstruct={voice}')
+
     # 处理内置音色或其他音色
     if voice in default_voices: # 内置音色
         params['role'] = voice
@@ -460,7 +429,7 @@ def audio_speech():
                 else:
                     api_name = 'instruct'
                     params['instruct_text'] = instruct
-            
+
                 # 打开参考文本文件并读取所有内容
                 if os.path.exists(f"{ref_audio}.txt"):
                     with open(f"{ref_audio}.txt", 'r', encoding='utf-8') as file:
@@ -486,9 +455,31 @@ def audio_speech():
 if __name__ == '__main__':
     host = os.getenv('API_HOST', '0.0.0.0')
     port = os.getenv('API_PORT', '8000')
-    print(f'\n启动api:http://{host}:{port}\n')
+    log_level = os.getenv('LOG_LEVEL', 'INFO')
+    logging.getLogger().setLevel(getattr(logging, log_level))
+
+    logging.info(f'\n启动api:http://{host}:{port}\n')
     if not shutil.which("ffmpeg"):
-        raise Exception('必须安装 ffmpeg')
+        logging.error('必须安装 ffmpeg')
+
+    check_tts_model()
+    # 默认模型音色
+    default_voices = tts_model.list_available_spks()
+    # 自定义音色库，存放在voices_dir
+    for name in os.listdir(f"{voices_dir}/"):
+        #logging.info(name.replace(".pt", ""))
+        spk_custom.append(name.replace(".pt", ""))
+
+    # wav等文件目录列表
+    #${root_dir/asset/}参考音频选择列表
+    files = [(entry.name, entry.stat().st_mtime) for entry in os.scandir(f"{asset_dir}") if entry.is_file() and os.path.splitext(entry.name)[1].lower() in ['.wav', '.mp3']]
+    files.sort(key=lambda x: x[0], reverse=False)  # 按名字排序
+    asset_wav_list = [f[0] for f in files]
+
+    logging.info(f"    默认音色: {default_voices}")
+    logging.info(f"  自定义音色: {spk_custom}")
+    logging.info(f"外置声音文件: {asset_wav_list}")
+
     try:
         from waitress import serve
     except Exception:
