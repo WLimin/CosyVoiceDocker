@@ -9,8 +9,12 @@
 # auto,plain
 #docker build -t cosyvoice-gpu --progress=plain -f docker/Dockerfile .
 # docker run -d -it --name cosy-voice --network=openwebui-net -v ${PWD}/pretrained_models:/workspace/CosyVoice/pretrained_models  -v ${PWD}/asset:/workspace/CosyVoice/asset -p 8086:8080 -p 8087:8000 -e CUDA_ENABLED=false -e MODEL_PATH=pretrained_models/CosyVoice2-0.5B cosyvoice
-# curl -X POST "http://127.0.0.1:8087/v1/audio/speech"  -H "Content-Type: application/json"  -d '{ "input": "Hello, 中文和英文混合测试。this is a test of the MeloTTS API.", "voice": "中文女", "response_format": "wav","speed": 1.0 }' --output /tmp/nfs/output.wav
+# curl -X POST "http://127.0.0.1:8087/v1/audio/speech"  -H "Content-Type: application/json"  -d '{ "input": "Hello, 中文和英文混合测试。this is a test of the MeloTTS API.", "voice": "中文女", "response_format": "wav","speed": 1.0 }' --output /tmp/output.wav;mpv /tmp/output.wav
 # curl  "http://127.0.0.1:8087/v1/audio/voices" |jq .
+#关于种子：
+# 21986*中文女 2345678*步非烟女 48271500*北京春晓 1986*bjcx.wav:郑州话
+
+
 VOLUMES=$PWD/
 
 # 检查专属网络是否创建
@@ -46,6 +50,10 @@ if false ; then
 docker cp cosy-voice:/workspace/CosyVoice/cosyvoice/cli/cosyvoice.py /tmp/cosyvoice.py
 patch -Np1 /tmp/cosyvoice.py < ${VOLUMES}/docker/zero_shot_sft.patch
 docker cp /tmp/cosyvoice.py cosy-voice:/workspace/CosyVoice/cosyvoice/cli/cosyvoice.py
+
+docker cp cosy-voice:/workspace/CosyVoice/cosyvoice/cli/frontend.py /tmp/new/frontend.py
+patch -Np1 /tmp/new/frontend.py < ${VOLUMES}/docker/frontend_zero_shot_del_key.patch
+docker cp /tmp/new/frontend.py cosy-voice:/workspace/CosyVoice/cosyvoice/cli/frontend.py
 
 # /workspace/CosyVoice/cosyvoice/cli/model.py:104: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
 docker cp cosy-voice:/workspace/CosyVoice/cosyvoice/cli/model.py /tmp/model.py
