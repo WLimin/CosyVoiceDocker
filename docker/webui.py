@@ -405,7 +405,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
             prompt_speech_16k, prompt_text = load_voice_pt(voice_path)
             logging.info(f"prompt_text='{prompt_text}'")
             if prompt_speech_16k is None:
-                gr.Warning('预置音色文件中缺少prompt_speech数据！')
+                gr.Warning(f'预置音色{sft_dropdown}需要外置 {voice_path} 文件支持！')
                 yield (cosyvoice.sample_rate, default_data), None
                 return
             #else:
@@ -430,20 +430,41 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
     elif mode_checkbox_group == '自然语言控制':
         logging.info('get instruct inference request')
         # TODO：需要考虑 zero_shot_prompt_id 模式
-        voice_path = f"{voices_dir}/{sft_dropdown}.pt"
-        prompt_speech_16k = load_voice_data(voice_path)
+        if sft_dropdown in cosyvoice.list_available_spks():
+            if 'flow_prompt_speech_token' in cosyvoice.frontend.spk2info[sft_dropdown].keys(): #不是内置sft
+                logging.info(f"内置扩展音色: {sft_dropdown}")
+                zero_shot_spk_id=sft_dropdown
+                prompt_speech_16k=None
+            else:
+                # 处理外置 prompt音频输入、内置sft
+                # 问题出在此处：{sft_dropdown}中包括了‘中文女’等不存在.pt文件
 
-        if prompt_speech_16k is None:
-            gr.Warning('预训练音色文件中缺少prompt_speech数据！')
+                # 检查是否存在外置扩展音色文件.pt
+                voice_path = f"{voices_dir}/{sft_dropdown}.pt"
+                if Path(voice_path).exists(): #满意
+                    logging.info(f"外置扩展音色文件: {voice_path}")
+                    prompt_speech_16k = load_voice_data(voice_path)
+                    zero_shot_spk_id=''
+                else:
+                    logging.info(f'选择的预训练音色 {sft_dropdown} 需要 {voice_path} 文件！')
+                    gr.Warning(f'选择的预训练音色 {sft_dropdown} 需要 {voice_path} 文件！')
+                    yield (cosyvoice.sample_rate, default_data), None
+                    return
+        else: #检查外置wav文件
+            prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr))
+            zero_shot_spk_id=''
+
+        if zero_shot_spk_id=='' and prompt_speech_16k is None:
+            gr.Warning(f'无法确定{sft_dropdown}、上传的wav或录音等提示音色文件！')
             yield (cosyvoice.sample_rate, default_data), None
             return
 
         if model_versions == 'V1':
-            generator = cosyvoice.inference_instruct(tts_text, sft_dropdown, instruct_text, stream=stream, speed=speed)
+            generator = cosyvoice.inference_instruct(tts_text, zero_shot_spk_id, instruct_text, stream=stream, speed=speed)
         elif model_versions == 'V2':
             # NOTE if you want to reproduce the results on https://funaudiollm.github.io/cosyvoice2, please add text_frontend=False during inference
             # tts_text, instruct_text, prompt_speech_16k, zero_shot_spk_id='', stream=False, speed=1.0, text_frontend=True
-            generator = cosyvoice.inference_instruct2(tts_text, instruct_text, prompt_speech_16k, stream=stream, speed=speed)
+            generator = cosyvoice.inference_instruct2(tts_text, instruct_text, prompt_speech_16k, stream=stream, speed=speed, zero_shot_spk_id=zero_shot_spk_id)
         else:
             gr.Warning('非预期的模型版本！')
     else:
