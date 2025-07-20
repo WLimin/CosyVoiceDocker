@@ -198,11 +198,11 @@ def batch(tts_type, outname, params):
             # 参考文本文件内容已经在参数内部了
 
         else:   #其它参考音频
-            if not params['reference_audio'] or not os.path.exists(f"{root_dir}/asset/{params['reference_audio']}"):
+            if not params['reference_audio'] or not os.path.exists(f"{params['reference_audio']}"):
                 raise Exception(f'参考音频未传入或不存在 {params["reference_audio"]}')
             ref_audio = f"{tmp_dir}/t-refaudio-{time.time()}.wav"
             try:
-                subprocess.run(["ffmpeg", "-hide_banner", "-ignore_unknown", "-y", "-i", f"{root_dir}/asset/{params['reference_audio']}", "-ar", f"{prompt_sr}", ref_audio],
+                subprocess.run(["ffmpeg", "-hide_banner", "-ignore_unknown", "-y", "-i", f"{params['reference_audio']}", "-ar", f"{prompt_sr}", ref_audio],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", check=True, text=True,
                             creationflags=0 if sys.platform != 'win32' else subprocess.CREATE_NO_WINDOW)
             except Exception as e:
@@ -344,25 +344,29 @@ def audio_speech():
     """
     global seed
     if not request.is_json:
-        return jsonify({"error": "请求必须是 JSON 格式"}), 400
-
+        logging.info(f'请求必须是 JSON 格式')
+        return jsonify({"error": "请求必须是 JSON 格式，参考OpenAI规范"}), 400
+    # 初始化空白参数
     params = get_params(request)
     data = request.get_json()
 
     # 检查请求中是否包含必要的参数
     if 'input' not in data or 'voice' not in data:
-        return jsonify({"error": "请求缺少必要的参数： input, voice"}), 400
+        logging.info(f'请求缺少必要的参数： input, voice')
+        return jsonify({"error": "请求缺少必要的参数：input:文本, voice:角色名"}), 400
 
     text = data.get('input')
     speed = float(data.get('speed', 1.0))
 
     voice = data.get('voice', '中文女')
-    #params = {}
+
     params['text'] = text
     params['speed'] = speed
     api_name = 'tts'
 
-    # 处理指令列表字符串
+    # 处理指令列表字符串 1986*bjcx.wav:郑州话 66668*电台播音女:四川话"
+    # BUGFIX：存在 Api:input=66668*北京春晓:郑州话, Seed=66668,RoleInstruct=北京春晓:郑州话
+
     # 提取随机数种子，在最前，以*分割
     if voice != '':
         if '*' in voice:
@@ -372,9 +376,10 @@ def audio_speech():
             voicestr = voice
 
         voice = voicestr
-        # <4294967295,0xffffffff,
+        # <4294967295,0xffffffff, 实际上，训练时候用的数值不超过100000
         seed = int(seedstr) & 0xffffffff
-    logging.info(f'\nApi:input={seedstr}*{voicestr}, Seed={seed},RoleInstruct={voice}')
+
+    logging.info(f'Api:input={seedstr}*{voicestr}, Seed={seed}, Role & Instruct={voice}')
 
     # 处理内置音色或其他音色
     if voice in default_voices: # 内置音色
@@ -408,6 +413,7 @@ def audio_speech():
                     params['reference_audio'] = ref_audio
 
                 except Exception as e:
+                    logging.error(f"加载外置音色文件'{full_path}'失败")
                     return jsonify({"error": {"message": f"加载外置音色文件'{full_path}'失败", "Exception": f'{e}', "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
 
                 params['role'] = voicestr   # 区分是否为.pt
@@ -417,9 +423,8 @@ def audio_speech():
                     api_name = 'instruct'
                     params['instruct_text'] = instruct
             else:
-                import traceback
-                traceback.print_exc()
-                return jsonify({"error": {"message": f"参考外置音色文件'{voices_dir}/{voicestr}.pt'不存在", "Exception": f'{e}', "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+                logging.error(f"参考外置音色文件'{voices_dir}/{voicestr}.pt'不存在")
+                return jsonify({"error": {"message": f"参考外置音色文件'{voices_dir}/{voicestr}.pt'不存在", "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
         elif voicestr in asset_wav_list:
             ref_audio = f'{asset_dir}/{voicestr}'
             if Path(ref_audio).exists():
@@ -436,11 +441,14 @@ def audio_speech():
                         reference_text = file.read()
                         params['reference_text'] = reference_text
                 else:
-                    return jsonify({"error": {"message": f"参考音频提示文件'{ref_audio}.txt'不存在", "Exception": f'{e}', "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+                    logging.error(f"参考音频提示文件'{ref_audio}.txt'不存在")
+                    return jsonify({"error": {"message": f"参考音频提示文件'{ref_audio}.txt'不存在", "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
             else:
-                return jsonify({"error": {"message": f"参考音频文件'{ref_audio}'不存在", "Exception": f'{e}', "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+                logging.error(f"参考音频文件'{ref_audio}'不存在")
+                return jsonify({"error": {"message": f"参考音频文件'{ref_audio}'不存在", "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
         else:
-            return jsonify({"error": {"message": f"必须填写配音角色名或参考音频路径", "Exception": f'{e}', "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+            logging.error(f"必须填写配音角色名或参考音频路径")
+            return jsonify({"error": {"message": f"必须填写配音角色名或参考音频路径", "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
 
     filename = f'openai-l{len(text)}-s{speed}-{time.time()}-r{seed}-{random.randint(1000,99999)}.wav'
     try:
@@ -458,16 +466,15 @@ if __name__ == '__main__':
     log_level = os.getenv('LOG_LEVEL', 'INFO')
     logging.getLogger().setLevel(getattr(logging, log_level))
 
-    logging.info(f'\n启动api:http://{host}:{port}\n')
     if not shutil.which("ffmpeg"):
         logging.error('必须安装 ffmpeg')
 
+    logging.info(f"初始化加载模型文件……")
     check_tts_model()
     # 默认模型音色
     default_voices = tts_model.list_available_spks()
     # 自定义音色库，存放在voices_dir
     for name in os.listdir(f"{voices_dir}/"):
-        #logging.info(name.replace(".pt", ""))
         spk_custom.append(name.replace(".pt", ""))
 
     # wav等文件目录列表
@@ -480,6 +487,7 @@ if __name__ == '__main__':
     logging.info(f"  自定义音色: {spk_custom}")
     logging.info(f"外置声音文件: {asset_wav_list}")
 
+    logging.info(f'\n启动api: http://{host}:{port}\n')
     try:
         from waitress import serve
     except Exception:
