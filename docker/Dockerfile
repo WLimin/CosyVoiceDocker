@@ -49,7 +49,8 @@ ENV PATH=/opt/conda/bin:/opt/conda/envs/${VENV}/bin:$PATH
 RUN /opt/conda/bin/python3.11 -m venv  --system-site-packages ${VENV} \
  && echo "source $HOME/${VENV}/bin/activate" >> ${HOME}/.bashrc && source $HOME/${VENV}/bin/activate \
  && patch -Np1 /workspace/CosyVoice/cosyvoice/cli/cosyvoice.py < /workspace/CosyVoice/zero_shot_sft.patch \
- && patch -Np1 /workspace/CosyVoice/cosyvoice/cli/model.py < /workspace/CosyVoice/torch.cuda.amp.autocast.patch
+ && patch -Np1 /workspace/CosyVoice/cosyvoice/cli/model.py < /workspace/CosyVoice/torch.cuda.amp.autocast.patch \
+ && patch -Np1 /workspace/CosyVoice/cosyvoice/cli/frontend.py < /workspace/CosyVoice/frontend_zero_shot_del_key.patch 
 
 ARG MODEL_PATH_ARG=pretrained_models/CosyVoice2-0.5B
 

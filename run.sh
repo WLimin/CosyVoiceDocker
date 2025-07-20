@@ -47,6 +47,10 @@ docker cp cosy-voice:/workspace/CosyVoice/cosyvoice/cli/cosyvoice.py /tmp/cosyvo
 patch -Np1 /tmp/cosyvoice.py < ${VOLUMES}/docker/zero_shot_sft.patch
 docker cp /tmp/cosyvoice.py cosy-voice:/workspace/CosyVoice/cosyvoice/cli/cosyvoice.py
 
+docker cp cosy-voice:/workspace/CosyVoice/cosyvoice/cli/frontend.py /tmp/new/frontend.py
+patch -Np1 /tmp/new/frontend.py < ${VOLUMES}/docker/frontend_zero_shot_del_key.patch
+docker cp /tmp/new/frontend.py cosy-voice:/workspace/CosyVoice/cosyvoice/cli/frontend.py
+
 # /workspace/CosyVoice/cosyvoice/cli/model.py:104: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
 docker cp cosy-voice:/workspace/CosyVoice/cosyvoice/cli/model.py /tmp/model.py
 patch -Np1 /tmp/model.py < ${VOLUMES}/docker/torch.cuda.amp.autocast.patch
