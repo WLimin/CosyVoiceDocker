@@ -71,7 +71,8 @@ CORS(app, cors_allowed_origins="*")
 
 prompt_sr = 16000 #默认提示采样率
 tts_model = None
-seed = 0  # random.randint(1, 100000000)
+default_seed = 2195486 # 随便写的
+seed = default_seed  # random.randint(1, 100000000)
 device_str = 'cuda' if torch.cuda.is_available() else 'cpu'
 default_voices = [] # 默认模型音色
 spk_custom = [] # 自定义音色库，存放在voices_dir
@@ -188,18 +189,18 @@ def process_audio(tts_speeches, sample_rate=prompt_sr, format="wav"):
 
 def batch(tts_type, outname, params):
     """ 实际批量合成完毕后连接为一个文件 """
-    global tts_model, seed
+    global tts_model
     logging.info(f"tts_type={tts_type}, outname={outname}\nparams={params}")
     # 根据传入参数的模式，检查是否需要加载参考音频文件
     prompt_speech_16k = None
+    zero_shot_spk_id = ''
     if tts_type != 'tts':
-        if os.path.exists(f"{voices_dir}/{params['role']}.pt"): # 预训练音色
-            prompt_speech_16k = load_wav(params['reference_audio'], prompt_sr) #加载临时文件
-            # 参考文本文件内容已经在参数内部了
-
-        else:   #其它参考音频
+        if params['role'] in default_voices and params['reference_audio'] is None:        # 内置扩展音色不需要加载参考音频
+            zero_shot_spk_id = params['role']
+        else:
             if not params['reference_audio'] or not os.path.exists(f"{params['reference_audio']}"):
                 raise Exception(f'参考音频未传入或不存在 {params["reference_audio"]}')
+
             ref_audio = f"{tmp_dir}/t-refaudio-{time.time()}.wav"
             try:
                 subprocess.run(["ffmpeg", "-hide_banner", "-ignore_unknown", "-y", "-i", f"{params['reference_audio']}", "-ar", f"{prompt_sr}", ref_audio],
@@ -221,7 +222,7 @@ def batch(tts_type, outname, params):
     elif tts_type == 'clone_eq' and params.get('reference_text'):
         inference_func = lambda: tts_model.inference_zero_shot(text, params.get('reference_text'), prompt_speech_16k, stream=streaming, speed=speeding)
     elif tts_type == 'instruct' and params.get('instruct_text'):
-        inference_func = lambda: tts_model.inference_instruct2(text, params.get('instruct_text'), prompt_speech_16k, stream=streaming)
+        inference_func = lambda: tts_model.inference_instruct2(text, params.get('instruct_text'), prompt_speech_16k, stream=streaming, zero_shot_spk_id = zero_shot_spk_id)
     else:  # default clone or clone_mul
         inference_func = lambda: tts_model.inference_cross_lingual(text, prompt_speech_16k, stream=streaming, speed=speeding)
 
@@ -358,97 +359,117 @@ def audio_speech():
     text = data.get('input')
     speed = float(data.get('speed', 1.0))
 
-    voice = data.get('voice', '中文女')
+    voice = data.get('voice', '中文女') # 此处保证 voice!=''
 
     params['text'] = text
     params['speed'] = speed
     api_name = 'tts'
 
-    # 处理指令列表字符串 1986*bjcx.wav:郑州话 66668*电台播音女:四川话"
+    # 处理指令列表字符串 中文女 步非烟女 / 21986*中文女 2345678*步非烟女 / 1986*bjcx.wav 1986*bjcx.wav:郑州话 66668*电台播音女:四川话 
     # BUGFIX：存在 Api:input=66668*北京春晓:郑州话, Seed=66668,RoleInstruct=北京春晓:郑州话
 
-    # 提取随机数种子，在最前，以*分割
-    if voice != '':
-        if '*' in voice:
-            [seedstr, voicestr] = voice.split('*', 1)
-        else:
-            seedstr = 0
-            voicestr = voice
-
-        voice = voicestr
+    # 提取随机数种子，第一个 * 分割随机数种子和后续指令
+    if '*' in voice:
+        [seedstr, voicestr] = voice.split('*', 1)
         # <4294967295,0xffffffff, 实际上，训练时候用的数值不超过100000
         seed = int(seedstr) & 0xffffffff
+    else:
+        seedstr = ''
+        voicestr = voice
 
+    if voicestr == '':
+        logging.info(f'必要参数请求voice内容为空错误：{voice}')
+        return jsonify({"error": "必要参数请求voice内容错误：{voice}"}), 400
+
+    voice = voicestr
     logging.info(f'Api:input={seedstr}*{voicestr}, Seed={seed}, Role & Instruct={voice}')
 
-    # 处理内置音色或其他音色
-    if voice in default_voices: # 内置音色
-        params['role'] = voice
-    elif voice != '': # 其他音色或指令
-        if ':' in voice: # ：符号分割音色和推理指令
-            [voicestr, instruct] = voice.split(':', 1)
+    # 分离角色/音色和指令，第一个:分割角色/音色和指令
+    if ':' in voice: # ：符号分割音色和推理指令
+        [voicestr, instruct] = voice.split(':', 1)
+    else:
+        voicestr = voice
+        instruct = ''
+    # 此时正交条件有：
+    #           内置音色 扩展音色 外置音色      外置声音文件
+    # 无指令    tts       tts     clone_eq       clone_eq
+    # refaudio  None      None    load+text      load+text
+    # 有指令    tts/err  instruct instruct       instruct
+    # refaudio  None     None     load+text     load+text
+
+    logging.info(f'Api:input=[Seed={seed}, Role={voicestr},  Instruct={instruct}]')
+    if voicestr in default_voices: # 内置音色/扩展音色
+        params['role'] = voicestr
+        if instruct == '':
+            api_name = 'tts'
         else:
-            voicestr = voice
-            instruct = ''
+            api_name = 'instruct'
 
-        # 处理其它音色或功能
-        if voicestr in spk_custom:
-            full_path = f"{voices_dir}/{voicestr}.pt"
-            if Path(full_path).exists():
-                #生成临时音频文件并返回
-                ref_audio = f"{tmp_dir}/t-refaudio.wav"
-                try:
-                    voice_data = torch.load(full_path, map_location=torch.device(device_str))
-                    buffer = io.BytesIO()
-                    audio_ref= voice_data.get('audio_ref').to('cpu')
-                    torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
-                    buffer.seek(0)
-                    # 打开文件用于写入二进制数据
-                    with open(ref_audio,'wb') as file:
-                        file.write(buffer.getvalue())
+        params['instruct_text'] = instruct
 
-                    # 打开参考文本文件并读取所有内容
-                    reference_text = voice_data.get('text_ref')
-                    params['reference_text'] = reference_text
-                    params['reference_audio'] = ref_audio
+        if 'flow_prompt_speech_token' in tts_model.frontend.spk2info[voicestr].keys(): #不是内置sft
+            logging.info(f"内置扩展音色: {voicestr}")
+        else: # 内置sft，‘中文女’等不支持指令模式
+            logging.info(f"内置音色: {voicestr} 不支持指令模式。")
+            api_name = 'tts'
 
-                except Exception as e:
-                    logging.error(f"加载外置音色文件'{full_path}'失败")
-                    return jsonify({"error": {"message": f"加载外置音色文件'{full_path}'失败", "Exception": f'{e}', "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
-
-                params['role'] = voicestr   # 区分是否为.pt
-                if instruct == '':
-                    api_name = 'clone'
-                else:
-                    api_name = 'instruct'
-                    params['instruct_text'] = instruct
-            else:
-                logging.error(f"参考外置音色文件'{voices_dir}/{voicestr}.pt'不存在")
-                return jsonify({"error": {"message": f"参考外置音色文件'{voices_dir}/{voicestr}.pt'不存在", "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
-        elif voicestr in asset_wav_list:
-            ref_audio = f'{asset_dir}/{voicestr}'
-            if Path(ref_audio).exists():
-                params['reference_audio'] = ref_audio
-                if instruct == '':
-                    api_name = 'clone'
-                else:
-                    api_name = 'instruct'
-                    params['instruct_text'] = instruct
+    elif voicestr in spk_custom:    # 处理外置音色
+        full_path = f"{voices_dir}/{voicestr}.pt"
+        if Path(full_path).exists():
+            #生成临时音频文件并返回
+            ref_audio = f"{tmp_dir}/t-refaudio.wav"
+            try:
+                voice_data = torch.load(full_path, map_location=torch.device(device_str))
+                buffer = io.BytesIO()
+                audio_ref= voice_data.get('audio_ref').to('cpu')
+                torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
+                buffer.seek(0)
+                # 打开文件用于写入二进制数据
+                with open(ref_audio,'wb') as file:
+                    file.write(buffer.getvalue())
 
                 # 打开参考文本文件并读取所有内容
-                if os.path.exists(f"{ref_audio}.txt"):
-                    with open(f"{ref_audio}.txt", 'r', encoding='utf-8') as file:
-                        reference_text = file.read()
-                        params['reference_text'] = reference_text
-                else:
-                    logging.error(f"参考音频提示文件'{ref_audio}.txt'不存在")
-                    return jsonify({"error": {"message": f"参考音频提示文件'{ref_audio}.txt'不存在", "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+                reference_text = voice_data.get('text_ref')
+                params['reference_text'] = reference_text
+                params['reference_audio'] = ref_audio
+
+            except Exception as e:
+                logging.error(f"加载外置音色文件'{full_path}'失败")
+                return jsonify({"error": {"message": f"加载外置音色文件'{full_path}'失败", "Exception": f'{e}', "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+
+            params['role'] = voicestr   # 区分是否为.pt
+            if instruct == '':
+                api_name = 'clone'
             else:
-                logging.error(f"参考音频文件'{ref_audio}'不存在")
-                return jsonify({"error": {"message": f"参考音频文件'{ref_audio}'不存在", "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+                api_name = 'instruct'
+                params['instruct_text'] = instruct
         else:
-            logging.error(f"必须填写配音角色名或参考音频路径")
-            return jsonify({"error": {"message": f"必须填写配音角色名或参考音频路径", "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+            logging.error(f"参考外置音色文件'{full_path}'不存在")
+            return jsonify({"error": {"message": f"参考外置音色文件'{full_path}'不存在", "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+    elif voicestr in asset_wav_list:
+        ref_audio = f'{asset_dir}/{voicestr}'
+        if Path(ref_audio).exists():
+            params['reference_audio'] = ref_audio
+            if instruct == '':
+                api_name = 'clone'
+            else:
+                api_name = 'instruct'
+                params['instruct_text'] = instruct
+
+            # 打开参考文本文件并读取所有内容
+            if os.path.exists(f"{ref_audio}.txt"):
+                with open(f"{ref_audio}.txt", 'r', encoding='utf-8') as file:
+                    reference_text = file.read()
+                    params['reference_text'] = reference_text
+            else:
+                logging.error(f"参考音频提示文件'{ref_audio}.txt'不存在")
+                return jsonify({"error": {"message": f"参考音频提示文件'{ref_audio}.txt'不存在", "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+        else:
+            logging.error(f"参考音频文件'{ref_audio}'不存在")
+            return jsonify({"error": {"message": f"参考音频文件'{ref_audio}'不存在", "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
+    else:
+        logging.error(f"必须填写配音角色名或参考音频路径")
+        return jsonify({"error": {"message": f"必须填写配音角色名或参考音频路径", "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
 
     filename = f'openai-l{len(text)}-s{speed}-{time.time()}-r{seed}-{random.randint(1000,99999)}.wav'
     try:
