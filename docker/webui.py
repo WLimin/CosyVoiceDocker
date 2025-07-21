@@ -60,6 +60,8 @@ instruct_dict = {'预训练音色': '1. 选择预训练音色\n2. 点击生成�
 stream_mode_list = [('否', False), ('是', True)]
 max_val = 0.8
 model_versions = None
+default_seed = 21986 # 随便写的
+seed = default_seed  # random.randint(1, 100000000)
 #device_str = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 device_str = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -517,7 +519,7 @@ def main():
             # 随机种子控制
             with gr.Column(scale=1):
                 seed_button = gr.Button(value="\U0001F3B2")
-                seed = gr.Number(value=0, label="随机推理种子")
+                seed = gr.Number(value=default_seed, label="随机推理种子")
 
         # 音频输入区域
         with gr.Row():
@@ -657,5 +659,5 @@ if __name__ == '__main__':
     else:
         asr_model_dir = args.asr_model_dir
     logging.info(f"device=f'{device_str}'\nasr_model_dir={asr_model_dir}")
-    asr_model = AutoModel( model=asr_model_dir, disable_update=True, log_level=args.log_level, device=device_str)
+    asr_model = AutoModel( model=asr_model_dir, disable_update=True, log_level=args.log_level, device='cpu') #device_str)
     main()

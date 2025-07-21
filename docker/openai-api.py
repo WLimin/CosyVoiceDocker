@@ -71,7 +71,7 @@ CORS(app, cors_allowed_origins="*")
 
 prompt_sr = 16000 #默认提示采样率
 tts_model = None
-default_seed = 2195486 # 随便写的
+default_seed = 21986 # 随便写的
 seed = default_seed  # random.randint(1, 100000000)
 device_str = 'cuda' if torch.cuda.is_available() else 'cpu'
 default_voices = [] # 默认模型音色
@@ -91,6 +91,7 @@ def check_tts_model():
             tts_model = CosyVoice2(model_dir, load_jit=False, fp16=True) #, load_trt=False)
         except Exception:
             raise TypeError('no valid model_type!')
+    logging.info(f"set all random seed to {seed}.")
     set_all_random_seed(seed)
 
 # ========== 工具函数 =============
@@ -366,13 +367,12 @@ def audio_speech():
     api_name = 'tts'
 
     # 处理指令列表字符串 中文女 步非烟女 / 21986*中文女 2345678*步非烟女 / 1986*bjcx.wav 1986*bjcx.wav:郑州话 66668*电台播音女:四川话 
-    # BUGFIX：存在 Api:input=66668*北京春晓:郑州话, Seed=66668,RoleInstruct=北京春晓:郑州话
 
     # 提取随机数种子，第一个 * 分割随机数种子和后续指令
+    inputctlstr = voice # 保存原始输入
     if '*' in voice:
         [seedstr, voicestr] = voice.split('*', 1)
-        # <4294967295,0xffffffff, 实际上，训练时候用的数值不超过100000
-        seed = int(seedstr) & 0xffffffff
+        seed = int(seedstr) & 0xffffffff        # <4294967295,0xffffffff, 实际上，训练时候用的数值不超过100000。
     else:
         seedstr = ''
         voicestr = voice
@@ -382,7 +382,6 @@ def audio_speech():
         return jsonify({"error": "必要参数请求voice内容错误：{voice}"}), 400
 
     voice = voicestr
-    logging.info(f'Api:input={seedstr}*{voicestr}, Seed={seed}, Role & Instruct={voice}')
 
     # 分离角色/音色和指令，第一个:分割角色/音色和指令
     if ':' in voice: # ：符号分割音色和推理指令
@@ -390,6 +389,8 @@ def audio_speech():
     else:
         voicestr = voice
         instruct = ''
+
+    logging.info(f'Api:input={inputctlstr} => [Seed={seed}, Role={voicestr},  Instruct={instruct}]')
     # 此时正交条件有：
     #           内置音色 扩展音色 外置音色      外置声音文件
     # 无指令    tts       tts     clone_eq       clone_eq
@@ -397,21 +398,22 @@ def audio_speech():
     # 有指令    tts/err  instruct instruct       instruct
     # refaudio  None     None     load+text     load+text
 
-    logging.info(f'Api:input=[Seed={seed}, Role={voicestr},  Instruct={instruct}]')
     if voicestr in default_voices: # 内置音色/扩展音色
         params['role'] = voicestr
-        if instruct == '':
-            api_name = 'tts'
-        else:
+        api_name = 'tts'
+        if instruct != '':
             api_name = 'instruct'
-
-        params['instruct_text'] = instruct
+            params['instruct_text'] = instruct
 
         if 'flow_prompt_speech_token' in tts_model.frontend.spk2info[voicestr].keys(): #不是内置sft
             logging.info(f"内置扩展音色: {voicestr}")
         else: # 内置sft，‘中文女’等不支持指令模式
-            logging.info(f"内置音色: {voicestr} 不支持指令模式。")
-            api_name = 'tts'
+            if api_name != 'tts':
+                logging.info(f"内置音色: {voicestr} 不支持指令模式。")
+                api_name = 'tts'
+                params['instruct_text'] = ''
+            else:
+                logging.info(f"内置音色: {voicestr}")
 
     elif voicestr in spk_custom:    # 处理外置音色
         full_path = f"{voices_dir}/{voicestr}.pt"
@@ -432,17 +434,14 @@ def audio_speech():
                 reference_text = voice_data.get('text_ref')
                 params['reference_text'] = reference_text
                 params['reference_audio'] = ref_audio
-
+                logging.info(f"成功加载外置音色文件'{full_path}'")
             except Exception as e:
                 logging.error(f"加载外置音色文件'{full_path}'失败")
                 return jsonify({"error": {"message": f"加载外置音色文件'{full_path}'失败", "Exception": f'{e}', "type": e.__class__.__name__, "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
 
+            api_name = 'clone' if instruct == '' else 'instruct'
             params['role'] = voicestr   # 区分是否为.pt
-            if instruct == '':
-                api_name = 'clone'
-            else:
-                api_name = 'instruct'
-                params['instruct_text'] = instruct
+            params['instruct_text'] = instruct
         else:
             logging.error(f"参考外置音色文件'{full_path}'不存在")
             return jsonify({"error": {"message": f"参考外置音色文件'{full_path}'不存在", "param": f'speed={speed},voice={voice},input={text}', "code": 400}}), 500
@@ -450,11 +449,8 @@ def audio_speech():
         ref_audio = f'{asset_dir}/{voicestr}'
         if Path(ref_audio).exists():
             params['reference_audio'] = ref_audio
-            if instruct == '':
-                api_name = 'clone'
-            else:
-                api_name = 'instruct'
-                params['instruct_text'] = instruct
+            params['instruct_text'] = instruct
+            api_name = 'clone' if instruct == '' else 'instruct'
 
             # 打开参考文本文件并读取所有内容
             if os.path.exists(f"{ref_audio}.txt"):
