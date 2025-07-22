@@ -216,7 +216,7 @@ def generate_seed():
 
 def change_instruction(mode_checkbox_group):
     """切换模式的处理"""
-    voice_dropdown_visible = mode_checkbox_group in ['预训练音色', '自然语言控制']
+    voice_dropdown_visible = mode_checkbox_group in ['预训练音色', '3s极速复刻', '自然语言控制']
     save_btn_visible = mode_checkbox_group in ['3s极速复刻']
     return (
         instruct_dict[mode_checkbox_group],
@@ -333,9 +333,9 @@ def validate_input(mode, tts_text, sft_dropdown, prompt_text, prompt_wav, instru
             return False, '您正在使用跨语种复刻模式, 请提供prompt音频'
     # if in zero_shot cross_lingual, please make sure that prompt_text and prompt_wav meets requirements
     elif mode in ['3s极速复刻', '跨语种复刻']:
-        if not prompt_wav:
+        if not prompt_wav and not is_zero_shot_spk(sft_dropdown): # 需要修正兼容内置扩展音色
             return False, 'prompt音频为空，您是否忘记输入prompt音频？'
-        if torchaudio.info(prompt_wav).sample_rate < prompt_sr:
+        if not prompt_wav and torchaudio.info(prompt_wav).sample_rate < prompt_sr:
             return False, f'prompt音频采样率{torchaudio.info(prompt_wav).sample_rate}低于{prompt_sr}'
     # sft mode only use sft_dropdown
     elif mode in ['预训练音色']:
@@ -346,7 +346,7 @@ def validate_input(mode, tts_text, sft_dropdown, prompt_text, prompt_wav, instru
 
     # zero_shot mode only use prompt_wav prompt text
     if mode in ['3s极速复刻']:
-        if prompt_text == '':
+        if prompt_text == '' and not is_zero_shot_spk(sft_dropdown): # 需要修正兼容内置扩展音色
             return False, 'prompt文本为空，您是否忘记输入prompt文本？'
         if instruct_text != '':
             gr.Info('您正在使用3s极速复刻模式，预训练音色/instruct文本会被忽略！')
@@ -393,6 +393,12 @@ def process_audio(speech_generator, stream):
         yield None, (cosyvoice.sample_rate, audio_data.numpy().flatten())
 
     yield total_duration
+
+def is_zero_shot_spk(id):
+    """ 是spk2info 内置扩展音色 返回 True
+    全局变量：cosyvoice
+    """
+    return True if id in cosyvoice.list_available_spks() and 'flow_prompt_speech_token' in cosyvoice.frontend.spk2info[id].keys() else False
 
 def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, prompt_wav_upload, prompt_wav_record, instruct_text,
                    seed, stream, speed):
@@ -444,6 +450,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
         if sft_dropdown in cosyvoice.list_available_spks():
             logging.info(f"预训练音色:{sft_dropdown}")
             generator = cosyvoice.inference_sft(tts_text, sft_dropdown, stream=stream, speed=speed)
+            #修改了保存的spk2info信息。若不修改，可判断是内置扩展后，调用inference_zero_shot
         else:
             # 处理外置 prompt音频输入，修改为生成临时文件
             voice_path = f"{voices_dir}/{sft_dropdown}.pt"
@@ -464,8 +471,11 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
     elif mode_checkbox_group == '3s极速复刻':
         logging.info('get zero_shot inference request')
         # TODO：需要考虑 zero_shot_prompt_id 模式
-        prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr))
-        generator = cosyvoice.inference_zero_shot(tts_text, prompt_text, prompt_speech_16k, stream=stream, speed=speed)
+        zero_shot_spk_id = sft_dropdown if is_zero_shot_spk(sft_dropdown) else ''
+        if not prompt_wav:
+            prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr))
+            zero_shot_spk_id = ''
+        generator = cosyvoice.inference_zero_shot(tts_text, prompt_text, prompt_speech_16k, stream=stream, speed=speed, zero_shot_spk_id=zero_shot_spk_id)
 
     elif mode_checkbox_group == '跨语种复刻':
         logging.info('get cross_lingual inference request')
