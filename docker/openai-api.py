@@ -88,7 +88,7 @@ def check_tts_model():
         # except Exception:
         try:
             #        flag = True
-            tts_model = CosyVoice2(model_dir, load_jit=False, fp16=True) #, load_trt=False)
+            tts_model = CosyVoice2(model_dir, load_jit=False, fp16=False if device_str == 'cpu' else True) #, load_trt=False)
         except Exception:
             raise TypeError('no valid model_type!')
     logging.info(f"set all random seed to {seed}.")
@@ -176,6 +176,31 @@ def process_audio(tts_speeches, sample_rate=prompt_sr, format="wav"):
     buffer.seek(0)
     return buffer
 
+def load_voice_to_tmp(voice_data):
+    """加载音色文件中内置的音频数据和文本（或许），16000,1ch,wav
+    输入：内置扩展音色Tensor
+    返回：临时wav文件名，参考音频识别文本
+    备注：绕过内置扩展音色进行语音控制推理时只采用zero_shot_spk_id的错误。
+    """
+    text_ref = ''
+    #生成临时音频文件并返回
+    ref_audio = f"/tmp/t-refaudio.wav"
+    buffer = io.BytesIO()
+    try:
+        audio_ref= voice_data.get('audio_ref')
+        torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
+        buffer.seek(0)
+        # 打开文件用于写入二进制数据
+        with open(ref_audio,'wb') as file:
+            file.write(buffer.getvalue())
+
+        text_ref = voice_data.get('text_ref') if voice_data else None
+    except Exception as e:
+        ref_audio = ''
+        logging.error(f"保存音色文件失败: {e}")
+
+    return ref_audio, text_ref
+
 def batch(tts_type, outname, params):
     """ 实际批量合成完毕后连接为一个文件
     条件符合/冲突时，优先级安排
@@ -194,6 +219,23 @@ def batch(tts_type, outname, params):
     if tts_type != 'tts':
         if params['role'] in default_voices and params['reference_audio'] is None:        # 内置扩展音色不需要加载参考音频
             zero_shot_spk_id = params['role']
+            logging.info(f"内置扩展音色推理模式: {zero_shot_spk_id}，转外置音色模式处理")
+            #BUG Around: 考虑加载内置扩展音色，转外置音色模式处理
+            prompt_speech_16k = None
+            #BUG AROUND: 考虑导出为临时文件绕过
+            [prompt_wav, prompt_speech_text] = load_voice_to_tmp(tts_model.frontend.spk2info[zero_shot_spk_id])
+
+            ref_audio = f"{tmp_dir}/t-refaudio-{time.time()}.wav"
+            try:
+                subprocess.run(["ffmpeg", "-hide_banner", "-ignore_unknown", "-y", "-i", f"{prompt_wav}", "-ar", f"{prompt_sr}", ref_audio],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", check=True, text=True,
+                            creationflags=0 if sys.platform != 'win32' else subprocess.CREATE_NO_WINDOW)
+            except Exception as e:
+                raise Exception(f'处理参考音频失败:{e}')
+            prompt_speech_16k = load_wav(ref_audio, prompt_sr)
+            if prompt_speech_16k is not None:
+                zero_shot_spk_id = ''
+
         else:
             if not params['reference_audio'] or not os.path.exists(f"{params['reference_audio']}"):
                 raise Exception(f'参考音频未传入或不存在 {params["reference_audio"]}')
@@ -402,9 +444,6 @@ def audio_speech():
 
         if 'flow_prompt_speech_token' in tts_model.frontend.spk2info[voicestr].keys(): #不是内置sft
             logging.info(f"内置扩展音色: {voicestr}")
-            #BUG Around: 考虑加载内置扩展音色，转外置音色模式处理
-
-
         else: # 内置sft，‘中文女’等不支持指令模式
             if api_name != 'tts':
                 logging.info(f"内置音色: {voicestr} 不支持指令模式。")

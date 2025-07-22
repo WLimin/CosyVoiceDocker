@@ -692,7 +692,7 @@ if __name__ == '__main__':
         model_versions = 'V1'
     except Exception:
         try:
-            cosyvoice = CosyVoice2(args.model_dir, fp16=True)
+            cosyvoice = CosyVoice2(args.model_dir, fp16=False if device_str == 'cpu' else True)
             model_versions = 'V2'
         except Exception:
             raise TypeError('no valid model_type!')
