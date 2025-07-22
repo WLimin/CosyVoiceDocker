@@ -219,7 +219,7 @@ def batch(tts_type, outname, params):
     if tts_type != 'tts':
         if params['role'] in default_voices and params['reference_audio'] is None:        # 内置扩展音色不需要加载参考音频
             zero_shot_spk_id = params['role']
-            logging.info(f"内置扩展音色推理模式: {zero_shot_spk_id}，转外置音色模式处理")
+            logging.info(f"内置扩展音色推理模式: {zero_shot_spk_id}")
             #BUG Around: 考虑加载内置扩展音色，转外置音色模式处理
             prompt_speech_16k = None
             #BUG AROUND: 考虑导出为临时文件绕过
