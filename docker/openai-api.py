@@ -223,18 +223,18 @@ def batch(tts_type, outname, params):
             #BUG Around: 考虑加载内置扩展音色，转外置音色模式处理
             prompt_speech_16k = None
             #BUG AROUND: 考虑导出为临时文件绕过
-            [prompt_wav, prompt_speech_text] = load_voice_to_tmp(tts_model.frontend.spk2info[zero_shot_spk_id])
+            #[prompt_wav, prompt_speech_text] = load_voice_to_tmp(tts_model.frontend.spk2info[zero_shot_spk_id])
 
-            ref_audio = f"{tmp_dir}/t-refaudio-{time.time()}.wav"
-            try:
-                subprocess.run(["ffmpeg", "-hide_banner", "-ignore_unknown", "-y", "-i", f"{prompt_wav}", "-ar", f"{prompt_sr}", ref_audio],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", check=True, text=True,
-                            creationflags=0 if sys.platform != 'win32' else subprocess.CREATE_NO_WINDOW)
-            except Exception as e:
-                raise Exception(f'处理参考音频失败:{e}')
-            prompt_speech_16k = load_wav(ref_audio, prompt_sr)
-            if prompt_speech_16k is not None:
-                zero_shot_spk_id = ''
+#            ref_audio = f"{tmp_dir}/t-refaudio-{time.time()}.wav"
+#            try:
+#                subprocess.run(["ffmpeg", "-hide_banner", "-ignore_unknown", "-y", "-i", f"{prompt_wav}", "-ar", f"{prompt_sr}", ref_audio],
+#                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", check=True, text=True,
+#                            creationflags=0 if sys.platform != 'win32' else subprocess.CREATE_NO_WINDOW)
+#            except Exception as e:
+#                raise Exception(f'处理参考音频失败:{e}')
+#            prompt_speech_16k = load_wav(ref_audio, prompt_sr)
+#            if prompt_speech_16k is not None:
+#                zero_shot_spk_id = ''
 
         else:
             if not params['reference_audio'] or not os.path.exists(f"{params['reference_audio']}"):

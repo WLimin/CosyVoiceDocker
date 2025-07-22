@@ -284,7 +284,7 @@ def load_voice_to_tmp(voice_data):
     ref_audio = f"/tmp/t-refaudio.wav"
     buffer = io.BytesIO()
     try:
-        audio_ref= voice_data.get('audio_ref')
+        audio_ref= voice_data.get('audio_ref').to('cpu')
         torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
         buffer.seek(0)
         # 打开文件用于写入二进制数据
@@ -333,9 +333,9 @@ def validate_input(mode, tts_text, sft_dropdown, prompt_text, prompt_wav, instru
             return False, '您正在使用跨语种复刻模式, 请提供prompt音频'
     # if in zero_shot cross_lingual, please make sure that prompt_text and prompt_wav meets requirements
     elif mode in ['3s极速复刻', '跨语种复刻']:
-        if not prompt_wav and not is_zero_shot_spk(sft_dropdown): # 需要修正兼容内置扩展音色
+        if (not prompt_wav) and (not is_zero_shot_spk(sft_dropdown)): # 需要修正兼容内置扩展音色
             return False, 'prompt音频为空，您是否忘记输入prompt音频？'
-        if not prompt_wav and torchaudio.info(prompt_wav).sample_rate < prompt_sr:
+        if bool(prompt_wav) and (torchaudio.info(prompt_wav).sample_rate < prompt_sr):
             return False, f'prompt音频采样率{torchaudio.info(prompt_wav).sample_rate}低于{prompt_sr}'
     # sft mode only use sft_dropdown
     elif mode in ['预训练音色']:
@@ -457,7 +457,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
             logging.info(f"用'3s极速复刻'模式处理预置音色:{sft_dropdown}，需要'{voice_path}'文件。")
             [prompt_wav, prompt_text] = load_voice_pt(voice_path)
             logging.info(f"prompt_text='{prompt_text}'")
-            if prompt_wav is None:
+            if not prompt_wav:
                 gr.Warning(f'预置音色{sft_dropdown}需要外置 {voice_path} 文件支持！')
                 yield (cosyvoice.sample_rate, default_data), None
                 return
@@ -472,9 +472,16 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
         logging.info('get zero_shot inference request')
         # TODO：需要考虑 zero_shot_prompt_id 模式
         zero_shot_spk_id = sft_dropdown if is_zero_shot_spk(sft_dropdown) else ''
-        if not prompt_wav:
+        if bool(prompt_wav):
             prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr))
             zero_shot_spk_id = ''
+        else:
+            prompt_speech_16k = None
+        if zero_shot_spk_id == '' and prompt_speech_16k is None:
+            logging.info(f'选择的预训练音色 {sft_dropdown} 需要上传的wav或录音等提示音色文件！')
+            gr.Warning(f'无法确定{sft_dropdown}、上传的wav或录音等提示音色文件！')
+            yield (cosyvoice.sample_rate, default_data), None
+            return
         generator = cosyvoice.inference_zero_shot(tts_text, prompt_text, prompt_speech_16k, stream=stream, speed=speed, zero_shot_spk_id=zero_shot_spk_id)
 
     elif mode_checkbox_group == '跨语种复刻':
@@ -493,19 +500,20 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
                 zero_shot_spk_id = sft_dropdown
                 prompt_speech_16k = None
                 #BUG AROUND: 考虑导出为临时文件绕过
-                [prompt_wav, prompt_speech_text] = load_voice_to_tmp(cosyvoice.frontend.spk2info[zero_shot_spk_id])
-                prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if prompt_wav != '' and Path(prompt_wav).exists() else None
-                if prompt_speech_16k is not None:
-                    zero_shot_spk_id = ''
+                #[prompt_wav, prompt_speech_text] = load_voice_to_tmp(cosyvoice.frontend.spk2info[zero_shot_spk_id])
+                #prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if bool(prompt_wav) and Path(prompt_wav).exists() else None
+                #if prompt_speech_16k is not None:
+                #    zero_shot_spk_id = ''
             else: # 内置sft，‘中文女’等不支持
                 logging.info(f"内置音色: {sft_dropdown}，不支持指令模式")
+                gr.Warning(f"内置音色: {sft_dropdown}，不支持指令模式！将使用声音文件。")
                 prompt_speech_16k = None
                 zero_shot_spk_id = ''
         elif Path(f"{voices_dir}/{sft_dropdown}.pt").exists(): # 检查是否存在外置扩展音色文件.pt
             voice_path = f"{voices_dir}/{sft_dropdown}.pt"
             logging.info(f"外置扩展音色，加载文件: {voice_path}")
             [prompt_wav, prompt_speech_text] = load_voice_pt(voice_path)
-            prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if  prompt_wav != '' and Path(prompt_wav).exists() else None
+            prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if bool(prompt_wav) and Path(prompt_wav).exists() else None
             if prompt_speech_16k is not None:
                 logging.info(f" 成功加载文件: {voice_path}")
             else:
@@ -515,7 +523,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
         if zero_shot_spk_id == '' and prompt_speech_16k is None:
             #检查外置wav文件
             logging.info(f'选择外置音色，需选择wav、上传或录音。使用文件：{prompt_wav}！')
-            prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if prompt_wav != '' and Path(prompt_wav).exists() else None
+            prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if bool(prompt_wav) and Path(prompt_wav).exists() else None
             zero_shot_spk_id = ''
             if zero_shot_spk_id == '' and prompt_speech_16k is None:
                 logging.info(f'选择的预训练音色 {sft_dropdown} 需要上传的wav或录音等提示音色文件！')
