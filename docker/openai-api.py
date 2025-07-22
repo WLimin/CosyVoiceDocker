@@ -160,18 +160,6 @@ def del_tmp_files(tmp_files: list):
             logging.info('删除缓存文件:', f)
             os.remove(f)
 
-def load_pt_voice_data(speaker):
-    """加载自定义预训练语音数据"""
-    voice_path = f"{voices_dir}/{speaker}.pt"
-    try:
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        if not os.path.exists(voice_path):
-            return None
-        voice_data = torch.load(voice_path, map_location=device)
-        return voice_data.get('audio_ref')
-    except Exception as e:
-        raise ValueError(f"加载音色文件失败: {e}")
-
 def process_audio(tts_speeches, sample_rate=prompt_sr, format="wav"):
     """处理音频数据并返回响应"""
     buffer = io.BytesIO()
@@ -189,7 +177,15 @@ def process_audio(tts_speeches, sample_rate=prompt_sr, format="wav"):
     return buffer
 
 def batch(tts_type, outname, params):
-    """ 实际批量合成完毕后连接为一个文件 """
+    """ 实际批量合成完毕后连接为一个文件
+    条件符合/冲突时，优先级安排
+        内置音色：只支持tts，忽略其它输入
+        扩展音色：支持tts、instruct（有instruct text）
+        外置音色：3s复刻、指令。会写入临时音频文件并加载到prompt wav.
+        外置声音文件：3s复刻、指令。
+
+        若指定了外置声音文件、上传声音文件或录音文件，优先采用指令中指定的文件，即外置或临时声音文件
+    """
     global tts_model
     logging.info(f"tts_type={tts_type}, outname={outname}\nparams={params}")
     # 根据传入参数的模式，检查是否需要加载参考音频文件
@@ -315,29 +311,41 @@ def clone_eq():
 #    else:
 #        return send_file(outname, mimetype='audio/x-wav')
 
-
-@app.route("/speakers", methods=['GET', 'POST'])
-def get_speakers():
-    """获取音色名称"""
-    voices = []
-
-    for x in default_voices:
-        voices.append({"name": x, "voice_id": x})
-    for x in spk_custom:
-        voices.append({"name": x, "voice_id": x})
-    for x in asset_wav_list:
-        voices.append({"name": x, "voice_id": x})
-
-    response = app.response_class(response=json.dumps(voices), status=200, mimetype='application/json')
-    return response
-
 # ========= OpenAI api 兼容 ==============
+@app.route("/speakers", methods=['GET', 'POST'])
 @app.route('/v1/audio/voices', methods=['GET', 'POST'])
 def get_voices():
     """获取角色名称"""
     speakers = default_voices + spk_custom + asset_wav_list
     return {"available_speakers": list(speakers)}
 
+def decode_input_instruct(inputstr):
+    """ 处理指令列表字符串
+        指令格式：随机数种子*角色名:其它指令
+            角色名可为内置音色名、内置扩展音色名、外置音色名(不含扩展名.pt)或外置音频文件名(含扩展名)
+        指令举例：
+            中文女
+            步非烟女
+            21986*中文女
+            2345678*步非烟女
+
+            1986*bjcx.wav
+            1986*bjcx.wav:郑州话
+            66668*电台播音女:四川话
+    """
+    # 提取随机数种子，第一个 * 分割随机数种子和后续指令
+    if '*' in inputstr:
+        [seedstr, voicestr] = inputstr.split('*', 1)
+    else:
+        seedstr = ''
+        voicestr = inputstr
+
+    # 分离角色/音色和指令，第一个:分割角色/音色和指令
+    if ':' in voicestr: # ：符号分割音色和推理指令
+        [voicestr, instruct] = voicestr.split(':', 1)
+    else:
+        instruct = ''
+    return seedstr, voicestr, instruct
 
 @app.route('/v1/audio/speech', methods=['POST'])
 def audio_speech():
@@ -366,31 +374,18 @@ def audio_speech():
     params['speed'] = speed
     api_name = 'tts'
 
-    # 处理指令列表字符串 中文女 步非烟女 / 21986*中文女 2345678*步非烟女 / 1986*bjcx.wav 1986*bjcx.wav:郑州话 66668*电台播音女:四川话 
+    [seedstr, voicestr, instruct] = decode_input_instruct(voice)
+    try:
+        if bool(seedstr):
+            seed = int(seedstr) & 0xffffffff        # <4294967295,0xffffffff, 实际上，训练时候用的数值不超过100000。
+    except Exception as e:
+         logging.error(f"设置随机数种子失败。检查指令是否正确。解析：'{seedstr}'，错误：{e}")
 
-    # 提取随机数种子，第一个 * 分割随机数种子和后续指令
-    inputctlstr = voice # 保存原始输入
-    if '*' in voice:
-        [seedstr, voicestr] = voice.split('*', 1)
-        seed = int(seedstr) & 0xffffffff        # <4294967295,0xffffffff, 实际上，训练时候用的数值不超过100000。
-    else:
-        seedstr = ''
-        voicestr = voice
-
+    logging.info(f'Api:input={voice} => [Seed={seedstr}({seed}), Role={voicestr},  Instruct={instruct}]')
     if voicestr == '':
         logging.info(f'必要参数请求voice内容为空错误：{voice}')
         return jsonify({"error": "必要参数请求voice内容错误：{voice}"}), 400
 
-    voice = voicestr
-
-    # 分离角色/音色和指令，第一个:分割角色/音色和指令
-    if ':' in voice: # ：符号分割音色和推理指令
-        [voicestr, instruct] = voice.split(':', 1)
-    else:
-        voicestr = voice
-        instruct = ''
-
-    logging.info(f'Api:input={inputctlstr} => [Seed={seed}, Role={voicestr},  Instruct={instruct}]')
     # 此时正交条件有：
     #           内置音色 扩展音色 外置音色      外置声音文件
     # 无指令    tts       tts     clone_eq       clone_eq
@@ -407,6 +402,9 @@ def audio_speech():
 
         if 'flow_prompt_speech_token' in tts_model.frontend.spk2info[voicestr].keys(): #不是内置sft
             logging.info(f"内置扩展音色: {voicestr}")
+            #BUG Around: 考虑加载内置扩展音色，转外置音色模式处理
+
+
         else: # 内置sft，‘中文女’等不支持指令模式
             if api_name != 'tts':
                 logging.info(f"内置音色: {voicestr} 不支持指令模式。")
@@ -579,7 +577,7 @@ response=requests.post(f'http://127.0.0.1:9933/tts',data=data,timeout=3600)
 
 > 用于克隆时，填写引用的参考音频相对于 api.py 的路径，例如引用1.wav，该文件和api.py在同一文件夹内，则填写 `1.wav`
 
-想多了，请求的json只有两项："input"和"voice"
+Open WebUI请求的json只有两项："input"和"voice"
 "voice"：
 用于文字合成时，取其一 '中文女', '中文男', '日语男', '粤语女', '英文女', '英文男', '韩语女'
 其他，用于3s克隆。表示存放在 asset/ 路径下的参考音频文件名，包括同名的附加.txt扩展名文件。可以是ffmpeg认识的格式。
@@ -610,7 +608,7 @@ curl 'http://172.16.1.105:8000/v1/audio/speech' -X POST -H 'Accept-Encoding: gzi
 
 注意, 需要下面的模型文件:
 pretrained_models/CosyVoice2-0.5B
-使用四川话等方言需要：
+使用四川话等方言增强或许需要，可以用wetext代替：
 pretrained_models/CosyVoice-ttsfrd
 ```
 
