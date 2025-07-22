@@ -104,7 +104,13 @@ def refresh_prompt_wav():
 
 def change_sfts_prompt(filename):
     """切换外置音色文件，待改进
-        .pt 文件中已经包含了该音色所需要的张量数据。但是需要修改前端支持。
+    输入：
+        外置音色文件.pt
+    返回：
+        临时wav文件名
+    备注：
+        .pt 文件中已经包含了该音色所需要的张量数据。但是存在载入位置GPU/CPU和fp32/fp16问题。
+
         暂时采用生成临时语音文件的办法来绕过。
     """
     full_path = f"{voices_dir}/{filename}.pt"
@@ -134,8 +140,8 @@ def change_prompt_wav(filename):
     """切换参考音频文件"""
     full_path = f"{asset_dir}/{filename}"
     if not os.path.exists(full_path):
-            logging.warning(f"音频文件不存在: {full_path}")
-            return None
+        logging.warning(f"音频文件不存在: {full_path}")
+        return None
 
     return full_path
 
@@ -169,6 +175,10 @@ def save_voice_model(voice_name, prompt_text, prompt_wav_upload, prompt_wav_reco
         # logging.info(prompt_text, prompt_speech_16k, voice_name)
         prompt_speech = load_wav(prompt_speech_16k, prompt_sr)
         if cosyvoice.add_zero_shot_spk(prompt_text, prompt_speech, voice_name):
+            # Hack for save more
+            cosyvoice.frontend.spk2info[voice_name]['embedding'] = cosyvoice.frontend.spk2info[voice_name]['llm_embedding']
+            cosyvoice.frontend.spk2info[voice_name]['audio_ref'] = prompt_speech
+            cosyvoice.frontend.spk2info[voice_name]['text_ref'] = prompt_text
             cosyvoice.save_spkinfo()
             gr.Info(f"音色成功保存为:'{voice_name}'.")
             return True
@@ -215,7 +225,10 @@ def change_instruction(mode_checkbox_group):
     )
 
 def prompt_wav_recognition(prompt_wav):
-    """参考或上传音频文件，用funasr识别文本"""
+    """参考或上传音频文件，用funasr识别文本
+    输入：音频文件名
+    返回：识别的文本
+    """
     if prompt_wav is None:
         return ''
 
@@ -231,28 +244,59 @@ def prompt_wav_recognition(prompt_wav):
         gr.Warning("识别文本失败，请检查音频是否包含人声内容")
         return ''
 
-def load_voice_data(voice_path):
-    """加载音色文件中内置的音频数据，16000,1ch,wav"""
-    try:
-        #device_str = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        voice_data = torch.load(voice_path, map_location=torch.device(device_str)) if os.path.exists(voice_path) else None
-        return voice_data.get('audio_ref') if voice_data else None
-    except Exception as e:
-        logging.error(f"load_voice_data 加载音色文件失败: {e}")
-        return None
+def load_voice_pt(full_path):
+    """加载音色文件中内置的音频数据和文本（或许），16000,1ch,wav
+    输入：外置音色文件全路径
+    返回：临时wav文件名，参考音频识别文本
+    """
+    text_ref = ''
+    ref_audio = f"/tmp/t-refaudio.wav"
+    if os.path.exists(full_path):
+        #生成临时音频文件并返回
+        buffer = io.BytesIO()
+        try:
+            voice_data = torch.load(full_path, map_location=torch.device(device_str))
+            audio_ref= voice_data.get('audio_ref').to('cpu')
+            torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
+            buffer.seek(0)
+            # 打开文件用于写入二进制数据
+            with open(ref_audio,'wb') as file:
+                file.write(buffer.getvalue())
 
-def load_voice_pt(voice_path):
-    """加载音色文件中内置的音频数据和文本（或许）"""
-    try:
-        #device_str = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        voice_data = torch.load(voice_path, map_location=torch.device(device_str)) if os.path.exists(voice_path) else None
+            text_ref = voice_data.get('text_ref') if voice_data else None
+        except Exception as e:
+            logging.error(f"change_sfts_prompt 加载外置音色文件失败: {e}")
+            ref_audio = ''
 
-        voice = voice_data.get('audio_ref') if voice_data else None
+    else:
+        logging.warning(f"外置音色文件不存在: {full_path}")
+        ref_audio = ''
+
+    return ref_audio, text_ref
+
+def load_voice_to_tmp(voice_data):
+    """加载音色文件中内置的音频数据和文本（或许），16000,1ch,wav
+    输入：内置扩展音色Tensor
+    返回：临时wav文件名，参考音频识别文本
+    """
+    text_ref = ''
+    #生成临时音频文件并返回
+    ref_audio = f"/tmp/t-refaudio.wav"
+    buffer = io.BytesIO()
+    try:
+        audio_ref= voice_data.get('audio_ref')
+        torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
+        buffer.seek(0)
+        # 打开文件用于写入二进制数据
+        with open(ref_audio,'wb') as file:
+            file.write(buffer.getvalue())
+
         text_ref = voice_data.get('text_ref') if voice_data else None
-        return voice, text_ref
     except Exception as e:
-        logging.error(f"load_voice_pt 加载扩展音色文件失败: {e}")
-        return None
+        ref_audio = ''
+        logging.error(f"保存音色文件失败: {e}")
+
+    return ref_audio, text_ref
 
 def validate_input(mode, tts_text, sft_dropdown, prompt_text, prompt_wav, instruct_text):
     """验证输入参数的合法性
@@ -401,21 +445,20 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
             logging.info(f"预训练音色:{sft_dropdown}")
             generator = cosyvoice.inference_sft(tts_text, sft_dropdown, stream=stream, speed=speed)
         else:
-            # 处理外置 prompt音频输入
+            # 处理外置 prompt音频输入，修改为生成临时文件
             voice_path = f"{voices_dir}/{sft_dropdown}.pt"
             logging.info(f"用'3s极速复刻'模式处理预置音色:{sft_dropdown}，需要'{voice_path}'文件。")
-            prompt_speech_16k, prompt_text = load_voice_pt(voice_path)
+            [prompt_wav, prompt_text] = load_voice_pt(voice_path)
             logging.info(f"prompt_text='{prompt_text}'")
-            if prompt_speech_16k is None:
+            if prompt_wav is None:
                 gr.Warning(f'预置音色{sft_dropdown}需要外置 {voice_path} 文件支持！')
                 yield (cosyvoice.sample_rate, default_data), None
                 return
-            #else:
-            #   prompt_speech_16k.
 
             if prompt_text is None:
                 gr.Warning('预置音色文件中缺少prompt_text数据！')
 
+            prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if Path(prompt_wav).exists() else None
             generator = cosyvoice.inference_zero_shot(tts_text, prompt_text, prompt_speech_16k, stream=stream, speed=speed)
 
     elif mode_checkbox_group == '3s极速复刻':
@@ -439,26 +482,37 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
                 logging.info(f"内置扩展音色: {sft_dropdown}")
                 zero_shot_spk_id = sft_dropdown
                 prompt_speech_16k = None
+                #BUG AROUND: 考虑导出为临时文件绕过
+                [prompt_wav, prompt_speech_text] = load_voice_to_tmp(cosyvoice.frontend.spk2info[zero_shot_spk_id])
+                prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if prompt_wav != '' and Path(prompt_wav).exists() else None
+                if prompt_speech_16k is not None:
+                    zero_shot_spk_id = ''
             else: # 内置sft，‘中文女’等不支持
+                logging.info(f"内置音色: {sft_dropdown}，不支持指令模式")
                 prompt_speech_16k = None
                 zero_shot_spk_id = ''
         elif Path(f"{voices_dir}/{sft_dropdown}.pt").exists(): # 检查是否存在外置扩展音色文件.pt
             voice_path = f"{voices_dir}/{sft_dropdown}.pt"
-            logging.info(f"外置扩展音色文件: {voice_path}")
-            prompt_speech_16k = load_voice_data(voice_path)
+            logging.info(f"外置扩展音色，加载文件: {voice_path}")
+            [prompt_wav, prompt_speech_text] = load_voice_pt(voice_path)
+            prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if  prompt_wav != '' and Path(prompt_wav).exists() else None
+            if prompt_speech_16k is not None:
+                logging.info(f" 成功加载文件: {voice_path}")
+            else:
+                logging.info(f" 加载文件: {voice_path} 失败。")
             zero_shot_spk_id=''
 
         if zero_shot_spk_id == '' and prompt_speech_16k is None:
             #检查外置wav文件
             logging.info(f'选择外置音色，需选择wav、上传或录音。使用文件：{prompt_wav}！')
-            prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if Path(prompt_wav).exists() else None
+            prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if prompt_wav != '' and Path(prompt_wav).exists() else None
             zero_shot_spk_id = ''
             if zero_shot_spk_id == '' and prompt_speech_16k is None:
                 logging.info(f'选择的预训练音色 {sft_dropdown} 需要上传的wav或录音等提示音色文件！')
                 gr.Warning(f'无法确定{sft_dropdown}、上传的wav或录音等提示音色文件！')
                 yield (cosyvoice.sample_rate, default_data), None
                 return
-        logging.info(f'instruct_text={instruct_text}, zero_shot_spk_id={zero_shot_spk_id}, {prompt_speech_16k}')
+        logging.info(f"instruct_text={instruct_text}, zero_shot_spk_id='{zero_shot_spk_id}', prompt_speech_16k is {'None' if prompt_speech_16k is None else 'not None'}.")
         if model_versions == 'V1':
             generator = cosyvoice.inference_instruct(tts_text, zero_shot_spk_id, instruct_text, stream=stream, speed=speed)
         elif model_versions == 'V2':
@@ -587,7 +641,7 @@ def main():
 
         save_button.click(save_voice_model, inputs=[new_name, prompt_text, prompt_wav_upload, prompt_wav_record])		# 保存为内置音色
         remove_button.click(remove_voice_model, inputs=[new_name])		# 删除指定的内置音色
-        
+
         seed_button.click(generate_seed, inputs=[], outputs=seed)
         generate_button.click(generate_audio,
                               inputs=[tts_text, mode_checkbox_group, sft_dropdown, prompt_text, prompt_wav_upload, prompt_wav_record, instruct_text,
@@ -638,7 +692,7 @@ if __name__ == '__main__':
         model_versions = 'V1'
     except Exception:
         try:
-            cosyvoice = CosyVoice2(args.model_dir, fp16=True)
+            cosyvoice = CosyVoice2(args.model_dir, fp16=False if device_str == 'cpu' else True)
             model_versions = 'V2'
         except Exception:
             raise TypeError('no valid model_type!')
