@@ -1,0 +1,11 @@
+diff -u org/cosyvoice.py new/cosyvoice.py
+--- org/cosyvoice.py	2025-07-16 13:57:49.481580161 +0800
++++ new/cosyvoice.py	2025-07-16 12:43:42.576154824 +0800
+@@ -72,6 +72,7 @@
+         model_input = self.frontend.frontend_zero_shot('', prompt_text, prompt_speech_16k, self.sample_rate, '')
+         del model_input['text']
+         del model_input['text_len']
++        model_input['embedding'] = model_input['llm_embedding']
+         self.frontend.spk2info[zero_shot_spk_id] = model_input
+         return True
+ 
