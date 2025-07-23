@@ -564,8 +564,8 @@ def main():
                     预训练模型 [CosyVoice2-0.5B](https://www.modelscope.cn/models/iic/CosyVoice2-0.5B) \
                     [CosyVoice-300M](https://www.modelscope.cn/models/iic/CosyVoice-300M) \
                     [CosyVoice-300M-Instruct](https://www.modelscope.cn/models/iic/CosyVoice-300M-Instruct) \
-                    [CosyVoice-300M-SFT](https://www.modelscope.cn/models/iic/CosyVoice-300M-SFT) \n\
-                    3s克隆后，可保存为内置扩展音色，能在语音合成、3s复刻、自然语言控制中使用。支持内置扩展音色管理。")
+                    [CosyVoice-300M-SFT](https://www.modelscope.cn/models/iic/CosyVoice-300M-SFT)")
+        gr.Markdown(f"### 3s急速复刻后，可保存为内置扩展音色，能在语音合成、3s复刻、自然语言控制中使用。支持添加、删除等管理。")
         gr.Markdown("#### 请输入需要合成的文本，选择推理模式，并按照提示步骤进行操作")
 
         # 主要输入区域
@@ -609,8 +609,9 @@ def main():
                 refresh_button = gr.Button("刷新参考音频")
 
         # 文本输入区域
-        prompt_text = gr.Textbox(label="输入prompt文本", lines=1, placeholder="请输入prompt文本，支持自动识别，您可以自行修正识别结果...", value='')
-        instruct_text = gr.Textbox(label="输入instruct文本", lines=1, placeholder="请输入instruct文本。例如: 用四川话说这句话。", value='')
+        with gr.Row():
+            prompt_text = gr.Textbox(label="输入prompt文本", lines=1, placeholder="请输入prompt文本，支持自动识别，您可以自行修正识别结果...", value='')
+            instruct_text = gr.Textbox(label="输入instruct文本", lines=1, placeholder="请输入instruct文本。例如: 用四川话说这句话。", value='')
 
          # 保存音色按钮（默认隐藏）
         with gr.Row(visible=False) as save_spk_btn:

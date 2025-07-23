@@ -9,7 +9,7 @@
 # auto,plain
 #docker build -t cosyvoice-gpu --progress=plain -f docker/Dockerfile .
 # docker run -d -it --name cosy-voice --network=openwebui-net -v ${PWD}/pretrained_models:/workspace/CosyVoice/pretrained_models  -v ${PWD}/asset:/workspace/CosyVoice/asset -p 8086:8080 -p 8087:8000 -e CUDA_ENABLED=false -e MODEL_PATH=pretrained_models/CosyVoice2-0.5B cosyvoice
-# curl -X POST "http://127.0.0.1:8087/v1/audio/speech"  -H "Content-Type: application/json"  -d '{ "input": "Hello, 中文和英文混合测试。this is a test of the MeloTTS API.久しぶりです。最近何をしていますか？ CosyVoice迎来全面升级，提供更准、更稳、更快、 更好的语音生成能力。CosyVoice is undergoing a comprehensive upgrade, providing more accurate, stable, faster, and better voice generation capabilities.", "voice": "中文女", "response_format": "wav","speed": 1.0 }' --output /tmp/output.wav;mpv /tmp/output.wav
+# curl -X POST "http://127.0.0.1:8087/v1/audio/speech"  -H "Content-Type: application/json"  -d '{ "input": "Hello, 中文和英文混合测试。this is a test of the MeloTTS API.久しぶりです。最近何をしていますか？ CosyVoice迎来全面升级，提供更准、更稳、更快、 更好的语音生成能力。CosyVoice is undergoing a comprehensive upgrade, providing more accurate, stable, faster, and better voice generation capabilities.", "voice": "步非烟女", "response_format": "wav","speed": 1.0 }' --output /tmp/output.wav;mpv /tmp/output.wav
 # curl  "http://127.0.0.1:8087/v1/audio/voices" |jq .
 #关于种子：
 # 21986*中文女 2345678*步非烟女 48271500*北京春晓 1986*bjcx.wav:郑州话
