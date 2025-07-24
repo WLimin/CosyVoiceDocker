@@ -3,12 +3,8 @@
 */.gitignore
 */.gitattributes
 .dockerignore
-results
-data
 *.filelist
-/data_server/target
 checkpoints
-jianchang512
 FunAudioLLM.github.io
 /ref
 /pretrained_models
