@@ -59,14 +59,9 @@ ref/*
 results
 data
 *.filelist
-/data_server/target
-checkpoints
-jianchang512
 FunAudioLLM.github.io
 /ref
 /pretrained_models
 /asset
-/add
 /Miniforge3-25.3.0-3-Linux-x86_64.sh
-/CosyVoice
 !/build.sh
