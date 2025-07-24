@@ -150,3 +150,7 @@ API接口调用测试示例
 curl -X POST "http://127.0.0.1:8087/v1/audio/speech"  -H "Content-Type: application/json"  -d '{ "input": "Hello, 中文和英文混合测试。this is a test of the MeloTTS API.久しぶりです。最近何をしていますか？ CosyVoice迎来全面升级，提供更准、更稳、更快、 更好的语音生成能力。CosyVoice is undergoing a comprehensive upgrade, providing more accurate, stable, faster, and better voice generation capabilities.", "voice": "3456732*hua_zh.wav:四川话", "response_format": "wav","speed": 1.0 }' --output /tmp/output.wav;mpv /tmp/output.wav
 （hua_zh.wav是外置的声音文件。嗯，加上四川话指令后不认识日语了，去掉就正常。）
 
+致谢
+    使用了大量代码和注释：https://github.com/jianchang512/cosyvoice-api
+    音色资源文件：voices/*.pt https://github.com/journey-ad/CosyVoice2-Ex
+    我自己^_^。理由：从网上、从AI对话中复制、粘贴并手搓了一堆我看不懂的 python 代码来显得自己很忙。
