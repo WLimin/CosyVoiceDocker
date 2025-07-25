@@ -1,7 +1,7 @@
 # CosyVoiceDocker
 
 [CosyVoice](https://github.com/FunAudioLLM/CosyVoice) 的docker文件。
-##功能：
+## 功能：
 *    默认使用 CosyVoice2。
 *    提供 WebUi 界面和 OpenAI API (V1) 兼容两套独立服务，可通过 CAPABILITIES=[api|web|all]环境变量选择。
 *    WebUi 界面中进行了加强。
@@ -16,13 +16,13 @@
 *    同时支持 CPU 和 GPU。
 *    非根用户webui运行。
 
-##依赖：
+## 依赖：
 *    python 3.11
 *    cuda 12.8.1
 *    torch 2.7.1
 
 
-##模型和缓存目录
+## 模型和缓存目录
 需要手工下载模型到指定目录下。参考目录和文件如下：
 ```bash
 tree -A pretrained_models
@@ -99,7 +99,7 @@ pretrained_models
     └── jok老师.pt
 ```
 
-##Build 
+## Build 
 十分抱歉，我只有一台配置 Nvida GeForce RTX 5070 Ti 12G显卡的 Debian Linux 13(trixie)系统，该显卡似乎只支持 cuda 12.8。因此，选择pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime作为基础镜像。
 
 进入顶层目录，通过以下指令构建 docker image。
@@ -108,7 +108,7 @@ docker build -t cosyvoice-gpu --progress=plain  --build-arg  ARG_USER_NAME=webui
      --build-arg MODEL_PATH_ARG=pretrained_models/CosyVoice2-0.5B \
      -f docker/Dockerfile .
 ```
-运行容器
+## 运行容器
 ```bash
 #!/bin/bash
 VOLUMES=$PWD/
@@ -141,7 +141,7 @@ if [ -d ${WETXT_CACHE} ]; then
     docker cp  /tmp/wetext.py cosy-voice:/opt/conda/lib/python3.11/site-packages/wetext/wetext.py 
 fi
 ```
-##API接口调用测试示例
+## API接口调用测试示例
 **返回讲话角色**
     curl  "http://127.0.0.1:8087/v1/audio/voices" |jq .
 
@@ -151,7 +151,7 @@ curl -X POST "http://127.0.0.1:8087/v1/audio/speech"  -H "Content-Type: applicat
 ```
 （hua_zh.wav是外置的声音文件。嗯，加上四川话指令后不认识日语了，去掉就正常。）
 
-##致谢
+## 致谢
     使用了大量代码和注释：https://github.com/jianchang512/cosyvoice-api
     音色资源文件：voices/*.pt https://github.com/journey-ad/CosyVoice2-Ex
     我自己^_^。理由：从网上、从AI对话中复制、粘贴并手搓了一堆我看不懂的 python 代码来显得自己很忙。
