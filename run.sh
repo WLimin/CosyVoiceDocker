@@ -13,20 +13,20 @@ docker network ls --format '{{.Name}}' | grep "${DOCKER_NET}"
 if [ $? -ne 0 ]; then
     docker network create ${DOCKER_NET}
 fi
+# 提供的服务。由于暂时不打算提供模型共享，可以选择api用于对话服务。webui界面主要完成语音复刻和测试。
+#CAPABILITIES=api|web|all
 
 # 宿主机是否有 nvidia GPU
 which nvidia-smi
+# echo "Debug: force use CPU"
 if [ $? -eq 0 ]; then #有gpu支持
     RUN_USE_GPU="--name cosy-voice --gpus all"
+    CAPABILITIES=api
 else
     RUN_USE_GPU="--name cosy-voice "
+    CAPABILITIES=all
 fi
-# Debug: force use CPU
-#RUN_USE_GPU="--name cosy-voice "
 
-# 提供的服务。由于暂时不打算提供模型共享，可以选择api用于对话服务。webui界面主要完成语音复刻和测试。
-#CAPABILITIES=api|web|all
-CAPABILITIES=api
 docker run -itd $RUN_USE_GPU \
     --network=${DOCKER_NET} \
     -p 8086:8080 -p 8087:8000 \
