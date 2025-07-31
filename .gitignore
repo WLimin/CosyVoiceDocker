@@ -55,7 +55,6 @@ ref/*
 */.github
 */.gitignore
 */.gitattributes
-.dockerignore
 results
 data
 *.filelist

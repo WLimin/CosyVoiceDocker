@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# curl -X POST "http://127.0.0.1:8087/v1/audio/speech"  -H "Content-Type: application/json"  -d '{ "input": "Hello, 中文和英文混合测试。this is a test of the MeloTTS API.久しぶりです。最近何をしていますか？ CosyVoice迎来全面升级，提供更准、更稳、更快、 更好的语音生成能力。CosyVoice is undergoing a comprehensive upgrade, providing more accurate, stable, faster, and better voice generation capabilities.", "voice": "步非烟女", "response_format": "wav","speed": 1.0 }' --output /tmp/output.wav;mpv /tmp/output.wav
+# curl -X POST "http://127.0.0.1:8087/v1/audio/speech"  -H "Content-Type: application/json"  -d '{ "input": "Hello, 中文、日文和英文混合测试。this is a test of the MeloTTS API. 久しぶりです。最近何をしていますか？ CosyVoice迎来全面升级，提供更准、更稳、更快、 更好的语音生成能力。CosyVoice is undergoing a comprehensive upgrade, providing more accurate, stable, faster, and better voice generation capabilities.", "voice": "步非烟女", "response_format": "wav","speed": 1.0 }' --output /tmp/output.wav;mpv /tmp/output.wav
 # curl  "http://127.0.0.1:8087/v1/audio/voices" |jq .
 #关于种子：
 # 21986*中文女 2345678*步非烟女 48271500*神经女 1986*bjcx.wav:郑州话
@@ -13,20 +13,21 @@ docker network ls --format '{{.Name}}' | grep "${DOCKER_NET}"
 if [ $? -ne 0 ]; then
     docker network create ${DOCKER_NET}
 fi
+# 提供的服务。由于暂时不打算提供模型共享，可以选择api用于对话服务。webui界面主要完成语音复刻和测试。
+#CAPABILITIES=api|web|all
 
 # 宿主机是否有 nvidia GPU
 which nvidia-smi
+# echo "Debug: force use CPU"
 if [ $? -eq 0 ]; then #有gpu支持
     RUN_USE_GPU="--name cosy-voice --gpus all"
+    CAPABILITIES=api
 else
     RUN_USE_GPU="--name cosy-voice "
+    CAPABILITIES=all
 fi
-# Debug: force use CPU
-#RUN_USE_GPU="--name cosy-voice "
 
-# 提供的服务。由于暂时不打算提供模型共享，可以选择api用于对话服务。webui界面主要完成语音复刻和测试。
-#CAPABILITIES=api|web|all
-CAPABILITIES=api
+    CAPABILITIES=all
 docker run -itd $RUN_USE_GPU \
     --network=${DOCKER_NET} \
     -p 8086:8080 -p 8087:8000 \
