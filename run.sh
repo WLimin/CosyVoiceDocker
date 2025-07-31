@@ -27,6 +27,7 @@ else
     CAPABILITIES=all
 fi
 
+    CAPABILITIES=all
 docker run -itd $RUN_USE_GPU \
     --network=${DOCKER_NET} \
     -p 8086:8080 -p 8087:8000 \
