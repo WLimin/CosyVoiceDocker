@@ -51,7 +51,7 @@ funasr
 
 #和vllm相关的
 #matplotlib==3.7.5
-transformers==4.46.2 # ==4.40.1 工作正常。
+transformers==4.40.1 # ==4.40.1 工作正常。
 #transformers==4.46.3
 tokenizers==0.20.3
 matplotlib

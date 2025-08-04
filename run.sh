@@ -27,11 +27,11 @@ else
     CAPABILITIES=all
 fi
 
-    CAPABILITIES=all
 docker run -itd $RUN_USE_GPU \
     --network=${DOCKER_NET} \
     -p 8086:8080 -p 8087:8000 \
     -v ${VOLUMES}/pretrained_models:/workspace/CosyVoice/pretrained_models \
+    -v ${HOME}/Public/AI/SpeechAIForgeDocker/models/CosyVoice2-0.5B:/workspace/CosyVoice/pretrained_models/CosyVoice2-0.5B \
     -v ${VOLUMES}/asset:/workspace/CosyVoice/asset \
     -e CUDA_ENABLED=false \
     -e CAPABILITIES=${CAPABILITIES} \
