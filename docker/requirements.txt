@@ -53,7 +53,8 @@ funasr
 #matplotlib==3.7.5
 transformers==4.40.1 # ==4.40.1 工作正常。
 #transformers==4.46.3
-tokenizers==0.20.3
+#tokenizers==0.20.3
+tokenizers>=0.19,<0.20  #transformers==4.40.1
 matplotlib
 numpy
 # 安装 vllm会增大7G。不安装可注释下面的包
