@@ -9,7 +9,6 @@ fastapi-cli>=0.0.5
 flask
 flask_cors
 gdown==5.1.0
-
 gradio==5.4.0
 # pydantic 版本很重要
 pydantic==2.10.6
@@ -34,6 +33,13 @@ tensorboard>=2.14.0
 uvicorn==0.30.0
 wetext>=0.0.4
 wget==3.2
+#matplotlib==3.7.5
+matplotlib
+numpy
+transformers==4.40.1 # ==4.40.1 工作正常。
+#transformers==4.46.3
+#tokenizers==0.20.3
+tokenizers>=0.19,<0.20  #transformers==4.40.1
 
 torch==2.7.1+cu128
 torchaudio==2.7.1+cu128
@@ -46,17 +52,11 @@ onnx>=1.16.0 # 可能是1.17.0
 onnxruntime
 onnxruntime-gpu
 
+
 #扩展的自动识别语音文本
 funasr
 
 #和vllm相关的
-#matplotlib==3.7.5
-transformers==4.40.1 # ==4.40.1 工作正常。
-#transformers==4.46.3
-#tokenizers==0.20.3
-tokenizers>=0.19,<0.20  #transformers==4.40.1
-matplotlib
-numpy
 # 安装 vllm会增大7G。不安装可注释下面的包
 #vllm 0.10.0 depends on transformers>=4.53.2,  tokenizers>=0.21.1
 #vllm==v0.10.0

@@ -20,8 +20,8 @@ fi
 which nvidia-smi
 # echo "Debug: force use CPU"
 if [ $? -eq 0 ]; then #有gpu支持
-    RUN_USE_GPU="--name cosy-voice --gpus all"
-    CAPABILITIES=api
+    RUN_USE_GPU="--name cosy-voice --gpus all  -e CUDA_ENABLED=true" # " -e PYTORCH_CUDA_ALLOC_CONF='expandable_segments:True' "
+    CAPABILITIES=all #api
 else
     RUN_USE_GPU="--name cosy-voice "
     CAPABILITIES=all
