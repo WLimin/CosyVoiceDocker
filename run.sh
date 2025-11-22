@@ -8,11 +8,8 @@
 VOLUMES=$PWD/
 
 # 检查专属网络是否创建，用于OpenWebui+ollama的语音交互
-DOCKER_NET=openwebui-net
-docker network ls --format '{{.Name}}' | grep "${DOCKER_NET}"
-if [ $? -ne 0 ]; then
-    docker network create ${DOCKER_NET}
-fi
+source $HOME/Public/AI/openwebui-check-net.sh
+
 # 提供的服务。由于暂时不打算提供模型共享，可以选择api用于对话服务。webui界面主要完成语音复刻和测试。
 #CAPABILITIES=api|web|all
 
@@ -21,20 +18,23 @@ which nvidia-smi
 # echo "Debug: force use CPU"
 if [ $? -eq 0 ]; then #有gpu支持
     RUN_USE_GPU="--name cosy-voice --gpus all  -e CUDA_ENABLED=true" # " -e PYTORCH_CUDA_ALLOC_CONF='expandable_segments:True' "
-    CAPABILITIES=all #api
+    CAPABILITIES=api
 else
-    RUN_USE_GPU="--name cosy-voice "
+    RUN_USE_GPU="--name cosy-voice -e CUDA_ENABLED=false "
     CAPABILITIES=all
 fi
+#    -p 8086:8080 -p 8087:8000 \
+#
 
 docker run -itd $RUN_USE_GPU \
-    --network=${DOCKER_NET} \
-    -p 8086:8080 -p 8087:8000 \
+    --network=${DOCKER_NET} --ip=${COSY_VOICE_IP} \
+    -e PUID=$(id -u) -e PGID=$(id -g) \
+    --user $(id -u):$(id -g) \
     -v ${VOLUMES}/pretrained_models:/workspace/CosyVoice/pretrained_models \
     -v ${HOME}/Public/AI/SpeechAIForgeDocker/models/CosyVoice2-0.5B:/workspace/CosyVoice/pretrained_models/CosyVoice2-0.5B \
     -v ${VOLUMES}/asset:/workspace/CosyVoice/asset \
-    -e CUDA_ENABLED=false \
     -e CAPABILITIES=${CAPABILITIES} \
+    -e GRADIO_ROOT_PATH=/cosyvoice \
     -e MODEL_PATH=pretrained_models/CosyVoice2-0.5B \
  cosyvoice-gpu
  
