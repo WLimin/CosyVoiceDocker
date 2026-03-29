@@ -1,0 +1,58 @@
+# 从pytorch/pytorch:2.9.1-cuda13.0-cudnn9-runtime 构建一个AI使用的基本镜像，包含内容：
+# /opt/conda/bin/python3.11, uv, conda, pip3, venv
+# ubuntu 22.04 lts, jammy, python 3.11
+# nvidia-npp13
+# 更新到 2026年03月28日
+
+# Defines build arguments for the versions of PyTorch, CUDA, and cuDNN to use ( 2026-02-23 20:23:33 )
+# 用pytorch的devel版本编译 flash-attn https://github.com/Dao-AILab/flash-attention
+# FROM llm-flash-attn-builder:latest AS builder
+
+# This image is based on the latest official PyTorch image, because it already contains CUDA, CuDNN, and PyTorch
+FROM pytorch/pytorch:2.9.1-cuda13.0-cudnn9-runtime
+# /opt/conda/bin/python3.11, uv, conda, pip3, venv
+# ubuntu 22.04 lts, jammy, python 3.11
+
+ARG UID=1000
+ARG ARG_USER_NAME=ubuntu
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=Asia/Shanghai \
+    PATH=/opt/conda/bin:$PATH  \
+    LD_LIBRARY_PATH=/opt/conda/lib/python3.11/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH \
+    PYTORCH_VERSION=2.9.1 USER_NAME=$ARG_USER_NAME
+
+SHELL ["/bin/bash", "--login", "-c"]
+
+# Installs Git, because ComfyUI and the ComfyUI Manager are installed by cloning their respective Git repositories
+# Install system dependencies
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    sed -i -e 's#archive.ubuntu.com#mirrors.ustc.edu.cn#g' -e 's#security.ubuntu.com#mirrors.ustc.edu.cn#g' /etc/apt/sources.list \
+    && rm -rf /etc/apt/sources.list.d/ubuntu.sources  && apt-get update -y --fix-missing \
+    && DEBIAN_FRONTEND=noninteractive apt install -y tzdata \
+    && apt-get install -y --no-install-recommends \
+    bash vim \
+    wget curl unzip tar \
+    build-essential \
+    git git-lfs \
+    libglib2.0-0 \
+    libxext6 libxrender-dev libsm6 \
+    libgomp1 libgl1 \
+ #   libgl1-mesa-glx \
+    ffmpeg libportaudio2 libasound-dev sox libsox-dev rubberband-cli \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
+    && git config --global --add safe.directory '*' \
+    && python -m pip config set global.index-url https://mirrors.aliyun.com/pypi/simple \
+    && useradd -l -u $UID -U -m -s /bin/bash ${USER_NAME}
+
+# 安装 flash_attn-2.8.3
+COPY ./flash_attn-2.8.3-cp311-cp311-linux_x86_64.whl /tmp/
+
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple  --no-build-isolation --extra-index-url https://download.pytorch.org/whl/cu130 /tmp/flash_attn-2.8.3-cp311-cp311-linux_x86_64.whl nvidia-npp torchcodec==0.9 torchaudio==2.9.1+cu130 ffmpeg\
+&& pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple --upgrade pip \
+&& rm /tmp/flash_attn-2.8.3-cp311-cp311-linux_x86_64.whl
+
