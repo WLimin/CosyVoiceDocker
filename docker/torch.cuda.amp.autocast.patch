@@ -1,30 +1,29 @@
-diff -u old/model.py new/model.py
---- old/model.py	2025-07-12 12:01:41.169859738 +0800
-+++ new/model.py	2025-07-19 22:59:29.264858081 +0800
-@@ -101,7 +101,7 @@
-         return {'min_shape': min_shape, 'opt_shape': opt_shape, 'max_shape': max_shape, 'input_names': input_names}
+--- old/model.py	2026-03-13 13:05:05.179584212 +0800
++++ new/model.py	2026-03-28 22:03:01.436243224 +0800
+@@ -100,7 +100,7 @@
  
      def llm_job(self, text, prompt_text, llm_prompt_speech_token, llm_embedding, uuid):
+         cur_silent_token_num, max_silent_token_num = 0, 5
 -        with self.llm_context, torch.cuda.amp.autocast(self.fp16 is True and hasattr(self.llm, 'vllm') is False):
 +        with self.llm_context, torch.amp.autocast('cuda' if torch.cuda.is_available() else 'cpu', enabled = (self.fp16 is True and hasattr(self.llm, 'vllm') is False)):
              if isinstance(text, Generator):
-                 assert isinstance(self, CosyVoice2Model) and not hasattr(self.llm, 'vllm'), 'streaming input text is only implemented for CosyVoice2 and do not support vllm!'
-                 for i in self.llm.inference_bistream(text=text,
-@@ -128,7 +128,7 @@
+                 assert (self.__class__.__name__ != 'CosyVoiceModel') and not hasattr(self.llm, 'vllm'), 'streaming input text is only implemented for CosyVoice2/3 and do not support vllm!'
+                 token_generator = self.llm.inference_bistream(text=text,
+@@ -133,7 +133,7 @@
          self.llm_end_dict[uuid] = True
  
      def token2wav(self, token, prompt_token, prompt_feat, embedding, uuid, finalize=False, speed=1.0):
 -        with torch.cuda.amp.autocast(self.fp16):
 +        with torch.amp.autocast('cuda' if torch.cuda.is_available() else 'cpu', enabled = self.fp16):
-             tts_mel, self.flow_cache_dict[uuid] = self.flow.inference(token=token.to(self.device),
+             tts_mel, self.flow_cache_dict[uuid] = self.flow.inference(token=token.to(self.device, dtype=torch.int32),
                                                                        token_len=torch.tensor([token.shape[1]], dtype=torch.int32).to(self.device),
                                                                        prompt_token=prompt_token.to(self.device),
-@@ -283,7 +283,7 @@
+@@ -290,7 +290,7 @@
          del self.llm.llm.model.model.layers
  
      def token2wav(self, token, prompt_token, prompt_feat, embedding, token_offset, uuid, stream=False, finalize=False, speed=1.0):
 -        with torch.cuda.amp.autocast(self.fp16):
 +        with torch.amp.autocast('cuda' if torch.cuda.is_available() else 'cpu', enabled = self.fp16):
-             tts_mel, _ = self.flow.inference(token=token.to(self.device),
+             tts_mel, _ = self.flow.inference(token=token.to(self.device, dtype=torch.int32),
                                               token_len=torch.tensor([token.shape[1]], dtype=torch.int32).to(self.device),
                                               prompt_token=prompt_token.to(self.device),

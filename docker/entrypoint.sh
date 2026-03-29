@@ -9,14 +9,14 @@ fi
 which python3
 if [ ! -d ${HOME}/.cache/modelscope/hub ] ; then
 	mkdir -p ${HOME}/.cache/
- 	ln -s /workspace/CosyVoice/pretrained_models/modelscope/ ${HOME}/.cache/modelscope
+ 	ln -s /app/CosyVoice/pretrained_models/modelscope/ ${HOME}/.cache/modelscope
 fi
 case ${CAPABILITIES} in
     api)
         exec python3 openai-api.py
     ;;
     web)
-        exec python3 webui.py --port 8080 --model_dir ${MODEL_PATH} 
+        exec python3 webui.py --port 8080 --model_dir ${MODEL_PATH} --log_level=${LOG_LEVEL}
     ;;
     *)
         #all

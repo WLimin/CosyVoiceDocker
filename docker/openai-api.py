@@ -5,7 +5,10 @@ from flask_cors import CORS
 import base64
 from cosyvoice.utils.common import set_all_random_seed
 from cosyvoice.utils.file_utils import load_wav, logging
-from cosyvoice.cli.cosyvoice import CosyVoice, CosyVoice2
+#from cosyvoice.cli.cosyvoice import CosyVoice, CosyVoice2
+from cosyvoice.cli.cosyvoice import AutoModel
+import numpy
+
 import random
 import datetime
 import shutil
@@ -88,7 +91,9 @@ def check_tts_model():
         # except Exception:
         try:
             #        flag = True
-            tts_model = CosyVoice2(model_dir, load_jit=False, fp16=False if device_str == 'cpu' else True) #, load_trt=False)
+            #tts_model = CosyVoice2(model_dir, load_jit=False, fp16=False if device_str == 'cpu' else True) #, load_trt=False)
+            tts_model = AutoModel(model_dir=model_dir, fp16=False if device_str == 'cpu' else True)
+
         except Exception:
             raise TypeError('no valid model_type!')
     logging.info(f"set all random seed to {seed}.")
@@ -172,7 +177,8 @@ def process_audio(tts_speeches, sample_rate=prompt_sr, format="wav"):
         resampler = torchaudio.transforms.Resample(orig_freq=original_sr, new_freq=sample_rate)
         audio_data = resampler(audio_data)
 
-    torchaudio.save(buffer, audio_data, sample_rate, format=format)
+    #torchaudio.save(buffer, audio_data, sample_rate, format=format)
+    numpy.save(buffer, audio_data.numpy())
     buffer.seek(0)
     return buffer
 
@@ -185,14 +191,15 @@ def load_voice_to_tmp(voice_data):
     text_ref = ''
     #生成临时音频文件并返回
     ref_audio = f"/tmp/t-refaudio.wav"
-    buffer = io.BytesIO()
+#    buffer = io.BytesIO()
     try:
         audio_ref= voice_data.get('audio_ref')
-        torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
-        buffer.seek(0)
-        # 打开文件用于写入二进制数据
-        with open(ref_audio,'wb') as file:
-            file.write(buffer.getvalue())
+        torchaudio.save(ref_audio, audio_ref, prompt_sr)
+        #torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
+#        buffer.seek(0)
+#        # 打开文件用于写入二进制数据
+#        with open(ref_audio,'wb') as file:
+#            file.write(buffer.getvalue())
 
         text_ref = voice_data.get('text_ref') if voice_data else None
     except Exception as e:
@@ -232,7 +239,7 @@ def batch(tts_type, outname, params):
                             creationflags=0 if sys.platform != 'win32' else subprocess.CREATE_NO_WINDOW)
             except Exception as e:
                 raise Exception(f'处理参考音频失败:{e}')
-            prompt_speech_16k = load_wav(ref_audio, prompt_sr)
+            prompt_speech_16k = ref_audio #load_wav(ref_audio, prompt_sr)
 
     streaming = bool(int(params.get('streaming', 0)))
     format = params.get('format', 'wav')
@@ -386,6 +393,8 @@ def audio_speech():
     # 初始化空白参数
     params = get_params(request)
     data = request.get_json()
+    logging.info(f'请求参数Json={data}')
+    params['format'] = None if not data.get('response_format') else data.get('response_format')
 
     # 检查请求中是否包含必要的参数
     if 'input' not in data or 'voice' not in data:
@@ -444,13 +453,13 @@ def audio_speech():
             ref_audio = f"{tmp_dir}/t-refaudio.wav"
             try:
                 voice_data = torch.load(full_path, map_location=torch.device(device_str))
-                buffer = io.BytesIO()
+#                buffer = io.BytesIO()
                 audio_ref= voice_data.get('audio_ref').to('cpu')
-                torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
-                buffer.seek(0)
-                # 打开文件用于写入二进制数据
-                with open(ref_audio,'wb') as file:
-                    file.write(buffer.getvalue())
+                torchaudio.save(ref_audio,audio_ref,prompt_sr) #buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
+#                buffer.seek(0)
+#                # 打开文件用于写入二进制数据
+#                with open(ref_audio,'wb') as file:
+#                    file.write(buffer.getvalue())
 
                 # 打开参考文本文件并读取所有内容
                 reference_text = voice_data.get('text_ref')
@@ -629,11 +638,35 @@ with  client.audio.speech.with_streaming_response.create(
 
 curl 'http://172.16.1.105:8000/v1/audio/speech' -X POST -H 'Accept-Encoding: gzip, deflate, br, zstd' -H 'Content-Type: application/json' --data-raw $'{"input":"或者如果您有具体的问题或需要帮助，请告诉我。","voice":"中文女"}' -o /tmp/nfs/a.wav
 curl 'http://172.16.1.105:8000/v1/audio/speech' -X POST -H 'Accept-Encoding: gzip, deflate, br, zstd' -H 'Content-Type: application/json' --data-raw $'{"input":"或者如果您有具体的问题或需要帮助，请告诉我。","voice":"cross_lingual_prompt.wav:四川话"}' -o /tmp/nfs/a.wav
+curl 'http://172.18.0.180:8000/v1/audio/speech' -X POST -H 'Accept-Encoding: gzip, deflate, br, zstd' -H 'Content-Type: application/json' --data-raw $'{"input":"或者如果您有具体的问题或需要帮助，请告诉我。","voice":"42*奶气萌娃:四川话"}' -o /tmp/a.wav;mpv /tmp/a.wav
 
 注意, 需要下面的模型文件:
 pretrained_models/CosyVoice2-0.5B
 使用四川话等方言增强或许需要，可以用wetext代替：
 pretrained_models/CosyVoice-ttsfrd
 ```
+在Open WebUI中可以设置如下：
+
+文本转语音引擎：OpenAI
+
+http://cosy-voice:8000/v1
+
+文本转语音音色：
+    42*cross_lingual_prompt.wav:四川话
+额外参数：
+{
+  "batch_size": 1,
+  "denoise": false,
+  "enhance": false,
+  "response_format": "mp3",
+  "seed": 42,
+  "speed": 1,
+  "spliter_threshold": 100,
+  "stream": false,
+  "style": "",
+  "temperature": 0.3,
+  "top_k": 20,
+  "top_p": 0.7
+}
 
 '''
