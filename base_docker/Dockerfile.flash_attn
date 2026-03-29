@@ -1,0 +1,102 @@
+# Defines build arguments for the versions of PyTorch, CUDA, and cuDNN to use ( 2026-02-23 20:23:33 )
+ARG PYTORCH_VERSION=2.9.1
+ARG CUDA_VERSION=13.0
+ARG CUDNN_VERSION=9
+
+# This image is based on the latest official PyTorch image, because it already contains CUDA, CuDNN, and PyTorch
+# /opt/conda/bin/python3.11, uv, conda, pip3, venv
+FROM pytorch/pytorch:${PYTORCH_VERSION}-cuda${CUDA_VERSION}-cudnn${CUDNN_VERSION}-devel
+# ubuntu 22.04 lts, jammy
+
+ARG UID=1000
+ARG ARG_USER_NAME=ubuntu
+ARG VENV_NAME="comfyui"
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    CUDA_HOME=/usr/local/cuda \
+    LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=Asia/Shanghai \
+    PATH=/usr/local/cuda/bin:$PATH \
+    LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+
+ENV USER_NAME=$ARG_USER_NAME
+
+ENV VENV=$VENV_NAME
+  
+SHELL ["/bin/bash", "--login", "-c"]
+
+# Installs Git, because ComfyUI and the ComfyUI Manager are installed by cloning their respective Git repositories
+# Install system dependencies
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+  echo -e 'deb http://mirrors.ustc.edu.cn/ubuntu/ jammy-security main universe restricted multiverse\n' \
+     'deb http://mirrors.ustc.edu.cn/ubuntu/ jammy-backports main universe restricted multiverse\n' \
+     'deb http://mirrors.ustc.edu.cn/ubuntu/ jammy-updates main universe restricted multiverse\n' \
+     'deb http://mirrors.ustc.edu.cn/ubuntu/ jammy main universe restricted multiverse'> /etc/apt/sources.list \
+    && rm -rf /etc/apt/sources.list.d/ubuntu.sources  && apt-get update -y --fix-missing \
+    && DEBIAN_FRONTEND=noninteractive apt install -y tzdata \
+    && apt-get install -y --no-install-recommends \
+    git \
+    wget \
+    curl \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+ #   libgl1-mesa-glx \
+    libgl1 ffmpeg \
+    build-essential \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
+     && useradd -l -u $UID -U -m -s /bin/bash ${USER_NAME} \
+    && mkdir -p /models /app && chown -R ${USER_NAME}:${USER_NAME} /models /app # Create directory for models (will be mounted from host)
+
+# 以root执行python
+
+# 以${USER_NAME}执行python
+
+#USER ${USER_NAME}
+#ENV HOME=/home/${USER_NAME}
+
+#RUN /opt/conda/bin/python3.11 -m venv  --system-site-packages ${HOME}/${VENV} \
+# && mkdir -p ${HOME}/.local/bin ${HOME}/.pycache \
+# && echo "source $HOME/${VENV}/bin/activate" >> ${HOME}/.bashrc && source $HOME/${VENV}/bin/activate
+
+## activate venv
+#ENV PATH=$HOME/${VENV}/bin:${HOME}/.local/bin:$PATH
+## Let .pyc files be stored in one place
+#ENV PYTHONPYCACHEPREFIX="${HOME}/.pycache"
+
+WORKDIR /app
+
+# Installs the required Python packages for both ComfyUI and the ComfyUI Manager
+#RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple --upgrade pip 
+# --no-build-isolation: 告诉pip在当前的Python环境中直接构建，使用已安装的依赖（如PyTorch），而不是创建一个临时的隔离环境。这通常能避免很多依赖解析问题。
+# MAX_JOBS=2: 限制并行编译任务数为2，防止内存溢出。默认情况下ninja会启动与CPU核心数相同的编译任务。如果你的服务器内存有限（比如小于96GB），这可能导致内存耗尽。通过设置MAX_JOBS环境变量可以限制并行任务数。
+# 成功编译安装后，导入时出现undefined symbol: _ZN3c105ErrorC1ENS_14SourceLocationERKSs 这依然是ABI不匹配的典型症状，但发生在从源码编译的情况下。这通常是因为你的PyTorch是用一种ABI编译的（比如从conda安装的预编译包），而你的系统GCC默认使用了另一种ABI。一个变通方法是尝试强制设置ABI标志：
+# CXXFLAGS="-D_GLIBCXX_USE_CXX11_ABI=$(python -c 'import torch; print(int(torch._C._GLIBCXX_USE_CXX11_ABI))')" MAX_JOBS=2 pip install . --no-build-isolation
+#env TORCH_VER=2.9 $(python -c 'import torch; print(int(torch._C._GLIBCXX_USE_CXX11_ABI))'=1
+# pip list|grep nvidia|sed -e "s/\(^[^ ]*\) *\([^ ]*\)$/'\1==\2' /g"
+
+RUN TORCH_VER=2.9 CXXFLAGS="-D_GLIBCXX_USE_CXX11_ABI=1"  CMAKE_VERBOSE_MAKEFILE=ON MAX_JOBS=2 pip wheel --no-build-isolation  -w /app/ -i https://mirrors.aliyun.com/pypi/simple 'flash-attn==2.8.3'  --extra-index-url https://download.pytorch.org/whl/cu130 'torch==2.9.1' 'nvidia-cublas==13.0.0.19'  \
+'nvidia-cuda-cupti==13.0.48'  \
+'nvidia-cuda-nvrtc==13.0.48'  \
+'nvidia-cuda-runtime==13.0.48' \
+'nvidia-cudnn-cu13==9.13.0.50'  \
+'nvidia-cufft==12.0.0.15'  \
+'nvidia-cufile==1.15.0.42'  \
+'nvidia-curand==10.4.0.35'  \
+'nvidia-cusolver==12.0.3.29'  \
+'nvidia-cusparse==12.6.2.49'  \
+'nvidia-cusparselt-cu13==0.8.0'  \
+'nvidia-nccl-cu13==2.27.7'  \
+'nvidia-nvjitlink==13.0.39'  \
+'nvidia-nvshmem-cu13==3.3.24'  \
+'nvidia-nvtx==13.0.39' && ls -l /app/
+
+#RUN pip wheel --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple flash-attn -w /app/
+
+# RUN CMAKE_VERBOSE_MAKEFILE=ON MAX_JOBS=2 pip install --no-cache-dir --no-build-isolation -i https://mirrors.aliyun.com/pypi/simple vllm
+
