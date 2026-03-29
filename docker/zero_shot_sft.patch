@@ -1,8 +1,7 @@
-diff -u org/cosyvoice.py new/cosyvoice.py
---- org/cosyvoice.py	2025-07-16 13:57:49.481580161 +0800
-+++ new/cosyvoice.py	2025-07-16 12:43:42.576154824 +0800
-@@ -72,6 +72,7 @@
-         model_input = self.frontend.frontend_zero_shot('', prompt_text, prompt_speech_16k, self.sample_rate, '')
+--- old/cosyvoice.py	2026-03-13 13:05:05.175583649 +0800
++++ new/cosyvoice.py	2026-03-28 21:54:33.130866698 +0800
+@@ -71,6 +71,7 @@
+         model_input = self.frontend.frontend_zero_shot('', prompt_text, prompt_wav, self.sample_rate, '')
          del model_input['text']
          del model_input['text_len']
 +        model_input['embedding'] = model_input['llm_embedding']

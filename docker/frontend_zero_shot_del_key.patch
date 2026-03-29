@@ -1,10 +1,9 @@
-diff -u old/frontend.py new/frontend.py
---- old/frontend.py	2025-07-22 19:29:35.366224498 +0800
-+++ new/frontend.py	2025-07-22 19:39:39.028655892 +0800
-@@ -198,8 +198,15 @@
+--- old/frontend.py	2026-03-13 13:05:05.175583649 +0800
++++ new/frontend.py	2026-03-28 22:05:37.947130364 +0800
+@@ -208,8 +208,14 @@
  
-     def frontend_instruct2(self, tts_text, instruct_text, prompt_speech_16k, resample_rate, zero_shot_spk_id):
-         model_input = self.frontend_zero_shot(tts_text, instruct_text + '<|endofprompt|>', prompt_speech_16k, resample_rate, zero_shot_spk_id)
+     def frontend_instruct2(self, tts_text, instruct_text, prompt_wav, resample_rate, zero_shot_spk_id):
+         model_input = self.frontend_zero_shot(tts_text, instruct_text, prompt_wav, resample_rate, zero_shot_spk_id)
 -        del model_input['llm_prompt_speech_token']
 -        del model_input['llm_prompt_speech_token_len']
 +        if bool(zero_shot_spk_id):
@@ -15,7 +14,6 @@ diff -u old/frontend.py new/frontend.py
 +            del model_input['llm_prompt_speech_token']
 +        if 'llm_prompt_speech_token_len' in model_input.keys():
 +            del model_input['llm_prompt_speech_token_len']
-+
          return model_input
  
-     def frontend_vc(self, source_speech_16k, prompt_speech_16k, resample_rate):
+     def frontend_vc(self, source_speech_16k, prompt_wav, resample_rate):

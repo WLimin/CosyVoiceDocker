@@ -21,12 +21,13 @@ import torch
 import torchaudio
 import random
 import librosa
-from funasr import AutoModel
+from funasr import AutoModel as funasr_AutoModel
 from funasr.utils.postprocess_utils import rich_transcription_postprocess
 import shutil
 import time
 from pathlib import Path
 import io
+import soundfile
 
 # 设置环境变量禁用tokenizers并行处理
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -40,7 +41,8 @@ voices_dir = Path(f'{ROOT_DIR}/pretrained_models/voices').as_posix()    #外置�
 asset_dir = Path(f'{ROOT_DIR}/asset').as_posix()    #参考音频文件目录
 print(f"voices_dir={voices_dir}\nasset_dir={asset_dir}")
 
-from cosyvoice.cli.cosyvoice import CosyVoice, CosyVoice2
+from cosyvoice.cli.cosyvoice import AutoModel
+# from cosyvoice.cli.cosyvoice import CosyVoice, CosyVoice2
 from cosyvoice.utils.file_utils import load_wav, logging
 from cosyvoice.utils.common import set_all_random_seed
 
@@ -104,13 +106,9 @@ def refresh_prompt_wav():
 
 def change_sfts_prompt(filename):
     """切换外置音色文件，待改进
-    输入：
-        外置音色文件.pt
-    返回：
-        临时wav文件名
-    备注：
-        .pt 文件中已经包含了该音色所需要的张量数据。但是存在载入位置GPU/CPU和fp32/fp16问题。
-
+    输入： 外置音色文件.pt
+    返回： 临时wav文件名
+    备注：.pt 文件中已经包含了该音色所需要的张量数据。但是存在载入位置GPU/CPU和fp32/fp16问题。
         暂时采用生成临时语音文件的办法来绕过。
     """
     full_path = f"{voices_dir}/{filename}.pt"
@@ -119,13 +117,14 @@ def change_sfts_prompt(filename):
         ref_audio = f"/tmp/t-refaudio.wav"
         try:
             voice_data = torch.load(full_path, map_location=torch.device(device_str))
-            buffer = io.BytesIO()
+#            buffer = io.BytesIO()
             audio_ref= voice_data.get('audio_ref').to('cpu')
-            torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
-            buffer.seek(0)
-            # 打开文件用于写入二进制数据
-            with open(ref_audio,'wb') as file:
-                file.write(buffer.getvalue())
+            torchaudio.save(ref_audio, audio_ref, prompt_sr)
+#            torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
+#            buffer.seek(0)
+#            # 打开文件用于写入二进制数据
+#            with open(ref_audio,'wb') as file:
+#                file.write(buffer.getvalue())
             full_path=ref_audio
         except Exception as e:
             logging.error(f"change_sfts_prompt 加载外置音色文件失败: {e}")
@@ -165,8 +164,9 @@ def save_voice_model(voice_name, prompt_text, prompt_wav_upload, prompt_wav_reco
     if not prompt_speech_16k:
         gr.Warning('prompt音频为空，您是否忘记输入prompt音频？')
         return False
-    if torchaudio.info(prompt_speech_16k).sample_rate < prompt_sr:
-        gr.Warning(f'prompt音频采样率{torchaudio.info(prompt_wav).sample_rate}低于{prompt_sr}')
+    sample_rate=soundfile.info(prompt_speech_16k).samplerate
+    if sample_rate < prompt_sr:
+        gr.Warning(f'prompt音频采样率{sample_rate}低于{prompt_sr}')
         return False
     if prompt_text == '':
         gr.Warning('prompt文本为空，您是否忘记输入prompt文本？')
@@ -174,7 +174,7 @@ def save_voice_model(voice_name, prompt_text, prompt_wav_upload, prompt_wav_reco
     try:
         # logging.info(prompt_text, prompt_speech_16k, voice_name)
         prompt_speech = load_wav(prompt_speech_16k, prompt_sr)
-        if cosyvoice.add_zero_shot_spk(prompt_text, prompt_speech, voice_name):
+        if cosyvoice.add_zero_shot_spk(prompt_text, prompt_speech_16k, voice_name):
             # Hack for save, cosyvoice.py 可以不修改。
             cosyvoice.frontend.spk2info[voice_name]['embedding'] = cosyvoice.frontend.spk2info[voice_name]['llm_embedding']
             cosyvoice.frontend.spk2info[voice_name]['audio_ref'] = prompt_speech    # 为以后准备，可以不保存
@@ -253,15 +253,16 @@ def load_voice_pt(full_path):
     ref_audio = f"/tmp/t-refaudio.wav"
     if os.path.exists(full_path):
         #生成临时音频文件并返回
-        buffer = io.BytesIO()
+#        buffer = io.BytesIO()
         try:
             voice_data = torch.load(full_path, map_location=torch.device(device_str))
             audio_ref= voice_data.get('audio_ref').to('cpu')
-            torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
-            buffer.seek(0)
-            # 打开文件用于写入二进制数据
-            with open(ref_audio,'wb') as file:
-                file.write(buffer.getvalue())
+            torchaudio.save(ref_audio, audio_ref, prompt_sr)
+#            torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")  # ERROR: Input tensor has to be on CPU.
+#            buffer.seek(0)
+#            # 打开文件用于写入二进制数据
+#            with open(ref_audio,'wb') as file:
+#                file.write(buffer.getvalue())
 
             text_ref = voice_data.get('text_ref') if voice_data else None
         except Exception as e:
@@ -282,14 +283,15 @@ def load_voice_to_tmp(voice_data):
     text_ref = ''
     #生成临时音频文件并返回
     ref_audio = f"/tmp/t-refaudio.wav"
-    buffer = io.BytesIO()
+#    buffer = io.BytesIO()
     try:
         audio_ref= voice_data.get('audio_ref').to('cpu') # ERROR: Input tensor has to be on CPU.
-        torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")
-        buffer.seek(0)
-        # 打开文件用于写入二进制数据
-        with open(ref_audio,'wb') as file:
-            file.write(buffer.getvalue())
+        torchaudio.save(ref_audio, audio_ref, prompt_sr)
+#        torchaudio.save(buffer, audio_ref, prompt_sr, format="wav")
+#        buffer.seek(0)
+#        # 打开文件用于写入二进制数据
+#        with open(ref_audio,'wb') as file:
+#            file.write(buffer.getvalue())
 
         text_ref = voice_data.get('text_ref') if voice_data else None
     except Exception as e:
@@ -297,61 +299,6 @@ def load_voice_to_tmp(voice_data):
         logging.error(f"保存音色文件失败: {e}")
 
     return ref_audio, text_ref
-
-def validate_input(mode, tts_text, sft_dropdown, prompt_text, prompt_wav, instruct_text):
-    """验证输入参数的合法性
-
-    Args:
-        mode: 推理模式
-        tts_text: 合成文本
-        sft_dropdown: 预训练音色
-        prompt_text: prompt文本
-        prompt_wav: prompt音频
-        instruct_text: instruct文本
-
-    Returns:
-        bool: 验证是否通过
-        str: 错误信息
-    """
-
-    # if instruct mode, please make sure that model is iic/CosyVoice-300M-Instruct and not cross_lingual mode
-    if mode in ['自然语言控制']:
-        if cosyvoice.instruct is False and model_versions == 'V1':
-            return False, f'您正在使用自然语言控制模式, {args.model_dir}模型不支持此模式, 请使用iic/CosyVoice-300M-Instruct模型'
-        if (prompt_wav is not None or prompt_text != '') and model_versions == 'V1':
-            gr.Info('您正在使用自然语言控制模式, prompt音频/prompt文本会被忽略')
-        if not instruct_text:
-            return False, '您正在使用自然语言控制模式, 请输入instruct文本'
-    # if cross_lingual mode, please make sure that model is iic/CosyVoice-300M and tts_text prompt_text are different language
-    elif mode in ['跨语种复刻']:
-        if cosyvoice.instruct is True:
-            return False, f'您正在使用跨语种复刻模式, {args.model_dir}模型不支持此模式, 请使用iic/CosyVoice-300M模型'
-        if instruct_text != '':
-            gr.Info('您正在使用跨语种复刻模式, instruct文本会被忽略')
-        gr.Info('您正在使用跨语种复刻模式, 请确保合成文本和prompt文本为不同语言')
-        if not prompt_wav:
-            return False, '您正在使用跨语种复刻模式, 请提供prompt音频'
-    # if in zero_shot cross_lingual, please make sure that prompt_text and prompt_wav meets requirements
-    elif mode in ['3s极速复刻', '跨语种复刻']:
-        if (not prompt_wav) and (not is_zero_shot_spk(sft_dropdown)): # 需要修正兼容内置扩展音色
-            return False, 'prompt音频为空，您是否忘记输入prompt音频？'
-        if bool(prompt_wav) and (torchaudio.info(prompt_wav).sample_rate < prompt_sr):
-            return False, f'prompt音频采样率{torchaudio.info(prompt_wav).sample_rate}低于{prompt_sr}'
-    # sft mode only use sft_dropdown
-    elif mode in ['预训练音色']:
-        if instruct_text != '' or bool(prompt_wav) or prompt_text != '':
-            gr.Info('您正在使用预训练音色模式，prompt文本/prompt音频/instruct文本会被忽略！')
-        if not sft_dropdown:
-            return False, '没有可用的预训练音色！'
-
-    # zero_shot mode only use prompt_wav prompt text
-    if mode in ['3s极速复刻']:
-        if prompt_text == '' and not is_zero_shot_spk(sft_dropdown): # 需要修正兼容内置扩展音色
-            return False, 'prompt文本为空，您是否忘记输入prompt文本？'
-        if instruct_text != '':
-            gr.Info('您正在使用3s极速复刻模式，预训练音色/instruct文本会被忽略！')
-
-    return True, ''
 
 def postprocess(speech, top_db=60, hop_length=220, win_length=440):
     """音频后处理方法"""
@@ -372,13 +319,9 @@ def postprocess(speech, top_db=60, hop_length=220, win_length=440):
 
 def process_audio(speech_generator, stream):
     """处理音频生成
-
-    Args:
-        speech_generator: 音频生成器
-        stream: 是否流式处理
-
-    Returns:
-        tuple: (音频数据列表, 总时长)
+    输入: speech_generator: 音频生成器
+          stream: 是否流式处理
+    返回: tuple: (音频数据列表, 总时长)
     """
     tts_speeches = []
     total_duration = 0
@@ -400,11 +343,63 @@ def is_zero_shot_spk(id):
     """
     return True if id in cosyvoice.list_available_spks() and 'flow_prompt_speech_token' in cosyvoice.frontend.spk2info[id].keys() else False
 
+def validate_input(mode, tts_text, sft_dropdown, prompt_text, prompt_wav, instruct_text):
+    """验证输入参数的合法性
+    输入: mode: 推理模式
+          tts_text: 合成文本
+          sft_dropdown: 预训练音色
+          prompt_text: prompt文本
+          prompt_wav: prompt音频
+          instruct_text: instruct文本
+    返回: bool: 验证是否通过
+          str: 错误信息
+    """
+
+    # if instruct mode, please make sure that model is iic/CosyVoice-300M-Instruct and not cross_lingual mode
+    if mode in ['自然语言控制']:
+#        if cosyvoice.instruct is False and model_versions == 'V1':
+#            return False, f'您正在使用自然语言控制模式, {args.model_dir}模型不支持此模式, 请使用iic/CosyVoice-300M-Instruct模型'
+        if (prompt_wav is not None or prompt_text != '') and model_versions == 'V1':
+            gr.Info('您正在使用自然语言控制模式, prompt音频/prompt文本会被忽略')
+        if not instruct_text:
+            return False, '您正在使用自然语言控制模式, 请输入instruct文本'
+    # if in zero_shot cross_lingual, please make sure that prompt_text and prompt_wav meets requirements
+    elif mode in ['3s极速复刻', '跨语种复刻']:
+        if (not prompt_wav) and (not is_zero_shot_spk(sft_dropdown)): # 需要修正兼容内置扩展音色
+            return False, 'prompt音频为空，您是否忘记输入prompt音频？'
+        if bool(prompt_wav):
+            sample_rate=soundfile.info(prompt_wav).samplerate
+            if (sample_rate < prompt_sr):
+                return False, f'prompt音频采样率{sample_rate}低于{prompt_sr}'
+        # if cross_lingual mode, please make sure that model is iic/CosyVoice-300M and tts_text prompt_text are different language
+        if mode in ['跨语种复刻']:
+#        if cosyvoice.instruct is True:
+#            return False, f'您正在使用跨语种复刻模式, {args.model_dir}模型不支持此模式, 请使用iic/CosyVoice-300M模型'
+            if instruct_text != '':
+                gr.Info('您正在使用跨语种复刻模式, instruct文本会被忽略')
+            gr.Info('您正在使用跨语种复刻模式, 请确保合成文本和prompt文本为不同语言')
+            if not prompt_wav:
+                return False, '您正在使用跨语种复刻模式, 请提供prompt音频'
+    # sft mode only use sft_dropdown
+    elif mode in ['预训练音色']:
+        if instruct_text != '' or bool(prompt_wav) or prompt_text != '':
+            gr.Info('您正在使用预训练音色模式，prompt文本/prompt音频/instruct文本会被忽略！')
+        if not sft_dropdown:
+            return False, '没有可用的预训练音色！'
+
+    # zero_shot mode only use prompt_wav prompt text
+    if mode in ['3s极速复刻']:
+        if prompt_text == '' and not is_zero_shot_spk(sft_dropdown): # 需要修正兼容内置扩展音色
+            return False, 'prompt文本为空，您是否忘记输入prompt文本？'
+        if instruct_text != '':
+            gr.Info('您正在使用3s极速复刻模式，预训练音色/instruct文本会被忽略！')
+
+    return True, ''
+
 def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, prompt_wav_upload, prompt_wav_record, instruct_text,
                    seed, stream, speed):
     """生成音频的主函数
-
-    Args:
+    输入:
         tts_text: 合成文本
         mode_checkbox_group: 推理模式
         sft_dropdown: 预训练音色
@@ -415,7 +410,6 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
         seed: 随机种子
         stream: 是否流式推理
         speed: 语速
-
     Yields:
         tuple: 音频数据
     """
@@ -465,14 +459,15 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
             if prompt_text is None:
                 gr.Warning('预置音色文件中缺少prompt_text数据！')
 
-            prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if Path(prompt_wav).exists() else None
+            # prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if Path(prompt_wav).exists() else None
+            prompt_speech_16k = prompt_wav if Path(prompt_wav).exists() else None
             generator = cosyvoice.inference_zero_shot(tts_text, prompt_text, prompt_speech_16k, stream=stream, speed=speed)
 
     elif mode_checkbox_group == '3s极速复刻':
         logging.info('get zero_shot inference request')
         zero_shot_spk_id = sft_dropdown if is_zero_shot_spk(sft_dropdown) else ''
         if bool(prompt_wav):
-            prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr))
+            prompt_speech_16k = prompt_wav # postprocess(load_wav(prompt_wav, prompt_sr)) #转为了张量，是否出错？
             zero_shot_spk_id = ''
         else:
             prompt_speech_16k = None
@@ -485,8 +480,8 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
 
     elif mode_checkbox_group == '跨语种复刻':
         logging.info('get cross_lingual inference request')
-        prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr))
-        generator = cosyvoice.inference_cross_lingual(tts_text, prompt_text, prompt_speech_16k, stream=stream, speed=speed)
+        prompt_speech_16k = prompt_wav # postprocess(load_wav(prompt_wav, prompt_sr))
+        generator = cosyvoice.inference_cross_lingual(tts_text, prompt_speech_16k, stream=stream, speed=speed) #prompt_text, prompt_speech_16k, stream=stream, speed=speed)
 
     elif mode_checkbox_group == '自然语言控制':
         logging.info('get instruct inference request')
@@ -506,7 +501,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
             voice_path = f"{voices_dir}/{sft_dropdown}.pt"
             logging.info(f"外置扩展音色，加载文件: {voice_path}")
             [prompt_wav, prompt_speech_text] = load_voice_pt(voice_path)
-            prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if bool(prompt_wav) and Path(prompt_wav).exists() else None
+            prompt_speech_16k = prompt_wav if bool(prompt_wav) and Path(prompt_wav).exists() else None # postprocess(load_wav(prompt_wav, prompt_sr)) if bool(prompt_wav) and Path(prompt_wav).exists() else None
             if prompt_speech_16k is not None:
                 logging.info(f" 成功加载文件: {voice_path}")
             else:
@@ -516,7 +511,7 @@ def generate_audio(tts_text, mode_checkbox_group, sft_dropdown, prompt_text, pro
         if zero_shot_spk_id == '' and prompt_speech_16k is None:
             #检查外置wav文件
             logging.info(f'选择外置音色，需选择wav、上传或录音。使用文件：{prompt_wav}！')
-            prompt_speech_16k = postprocess(load_wav(prompt_wav, prompt_sr)) if bool(prompt_wav) and Path(prompt_wav).exists() else None
+            prompt_speech_16k = prompt_wav if bool(prompt_wav) and Path(prompt_wav).exists() else None # postprocess(load_wav(prompt_wav, prompt_sr)) if bool(prompt_wav) and Path(prompt_wav).exists() else None
             zero_shot_spk_id = ''
             if zero_shot_spk_id == '' and prompt_speech_16k is None:
                 logging.info(f'选择的预训练音色 {sft_dropdown} 需要上传的wav或录音等提示音色文件！')
@@ -569,7 +564,7 @@ def main():
         gr.Markdown("#### 请输入需要合成的文本，选择推理模式，并按照提示步骤进行操作")
 
         # 主要输入区域
-        tts_text = gr.Textbox(label="输入合成文本", lines=1, value="CosyVoice迎来全面升级，提供更准、更稳、更快、 更好的语音生成能力。CosyVoice is undergoing a comprehensive upgrade, providing more accurate, stable, faster, and better voice generation capabilities.")
+        tts_text = gr.Textbox(label="输入合成文本", lines=1, value="CosyVoice2迎来全面升级，提供更准、更稳、更快、 更好的语音生成能力。CosyVoice2 is undergoing a comprehensive upgrade, providing more accurate, stable, faster, and better voice generation capabilities.")
         with gr.Row():
             mode_checkbox_group = gr.Radio(choices=inference_mode_list, label='选择推理模式', value=inference_mode_list[0], scale=1)
             instruction_text = gr.Text(label="操作步骤", value=instruct_dict[inference_mode_list[0]], scale=3)
@@ -592,20 +587,10 @@ def main():
             prompt_wav_upload = gr.Audio(sources='upload', type='filepath', label='选择prompt音频文件，注意采样率不低于16khz', scale=2)
             prompt_wav_record = gr.Audio(sources='microphone', type='filepath', label='录制prompt音频文件', scale=2)
             with gr.Column(scale=1):
-                ref_sfts_dropdown = gr.Dropdown(
-                    label="外置音色列表",
-                    choices=ref_sfts_prompts,
-                    value="请选择提示音色",
-                    interactive=True
-                )
+                ref_sfts_dropdown = gr.Dropdown(label="外置音色列表", choices=ref_sfts_prompts, value="请选择提示音色", interactive=True)
                 refresh_ref_sfts_button = gr.Button("刷新提示音色")
             with gr.Column(scale=1):
-                wavs_dropdown = gr.Dropdown(
-                    label="参考音频列表",
-                    choices=reference_wavs,
-                    value="请选择参考音频或者自己上传",
-                    interactive=True
-                )
+                wavs_dropdown = gr.Dropdown(label="参考音频列表", choices=reference_wavs, value="请选择参考音频或者自己上传", interactive=True)
                 refresh_button = gr.Button("刷新参考音频")
 
         # 文本输入区域
@@ -625,24 +610,8 @@ def main():
 
         # 音频输出区域
         with gr.Group() as audio_group:
-            audio_output_stream = gr.Audio(
-                label="合成音频(流式)",
-                value=None,
-                streaming=True,
-                autoplay=True,
-                show_label=True,
-                show_download_button=True,
-                visible=False
-            )
-            audio_output_normal = gr.Audio(
-                label="合成音频",
-                value=None,
-                streaming=False,
-                autoplay=True,
-                show_label=True,
-                show_download_button=True,
-                visible=True
-            )
+            audio_output_stream = gr.Audio(label="合成音频(流式)", value=None, streaming=True, autoplay=True, show_label=True, show_download_button=True, visible=False)
+            audio_output_normal = gr.Audio(label="合成音频", value=None, streaming=False, autoplay=True, show_label=True, show_download_button=True, visible=True)
 
         # 绑定事件
         refresh_voice_button.click(fn=refresh_sft_spk, inputs=[], outputs=[sft_dropdown])
@@ -652,63 +621,46 @@ def main():
         ref_sfts_dropdown.change(change_sfts_prompt, inputs=[ref_sfts_dropdown], outputs=[prompt_wav_upload]) #提示音色列表选择
         refresh_ref_sfts_button.click(fn=refresh_sfts_prompt, inputs=[], outputs=[ref_sfts_dropdown]) #刷新提示音色
 
-        save_button.click(save_voice_model, inputs=[new_name, prompt_text, prompt_wav_upload, prompt_wav_record])		# 保存为内置音色
-        remove_button.click(remove_voice_model, inputs=[new_name])		# 删除指定的内置音色
+        save_button.click(save_voice_model, inputs=[new_name, prompt_text, prompt_wav_upload, prompt_wav_record])  # 保存为内置音色
+        remove_button.click(remove_voice_model, inputs=[new_name]) # 删除指定的内置音色
 
         seed_button.click(generate_seed, inputs=[], outputs=seed)
         generate_button.click(generate_audio,
-                              inputs=[tts_text, mode_checkbox_group, sft_dropdown, prompt_text, prompt_wav_upload, prompt_wav_record, instruct_text,
-                                      seed, stream, speed],
+                              inputs=[tts_text, mode_checkbox_group, sft_dropdown, prompt_text, prompt_wav_upload, prompt_wav_record, instruct_text, seed, stream, speed],
                               outputs=[audio_output_stream, audio_output_normal])
         mode_checkbox_group.change(fn=change_instruction, inputs=[mode_checkbox_group], outputs=[instruction_text, choice_sft_spk, save_spk_btn])
         prompt_wav_upload.change(fn=prompt_wav_recognition, inputs=[prompt_wav_upload], outputs=[prompt_text])
         prompt_wav_record.change(fn=prompt_wav_recognition, inputs=[prompt_wav_record], outputs=[prompt_text])
 
-        stream.change(
-            fn=update_audio_visibility,
-            inputs=[stream],
-            outputs=[audio_output_stream, audio_output_normal]
-        )
+        stream.change(fn=update_audio_visibility, inputs=[stream], outputs=[audio_output_stream, audio_output_normal])
 
     # 配置队列和启动服务
     demo.queue(max_size=4, default_concurrency_limit=2)
     demo.launch(server_name='0.0.0.0', server_port=args.port, inbrowser=args.open)
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--port',
-                        type=int,
-                        default=8000)
-    parser.add_argument('--model_dir',
-                        type=str,
-                        default='pretrained_models/CosyVoice2-0.5B',
-                        help='local path or modelscope repo id')
-    parser.add_argument('--asr_model_dir',
-                        type=str,
-                        default='iic/SenseVoiceSmall',
-                        help='local path or modelscope repo id of iic/SenseVoiceSmall')
-    parser.add_argument('--open',
-                        action='store_true',
-                        help='open in browser')
-    parser.add_argument('--log_level',
-                        type=str,
-                        default='INFO',
-                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-                        help='set log level')
+    parser.add_argument('--port', type=int, default=8000)
+    parser.add_argument('--model_dir', type=str, default='pretrained_models/CosyVoice2-0.5B', help='local path or modelscope repo id')
+    parser.add_argument('--asr_model_dir', type=str, default='iic/SenseVoiceSmall', help='local path or modelscope repo id of iic/SenseVoiceSmall')
+    parser.add_argument('--open', action='store_true', help='open in browser')
+    parser.add_argument('--log_level', type=str, default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], help='set log level')
     args = parser.parse_args()
 
     logging.getLogger().setLevel(getattr(logging, args.log_level))
 
-    try:
-        cosyvoice = CosyVoice(args.model_dir)
-        model_versions = 'V1'
-    except Exception:
-        try:
-            cosyvoice = CosyVoice2(args.model_dir, fp16=False if device_str == 'cpu' else True)
-            model_versions = 'V2'
-        except Exception:
-            raise TypeError('no valid model_type!')
+    cosyvoice = AutoModel(model_dir=args.model_dir, fp16=False if device_str == 'cpu' else True)
+    model_versions = 'V2'
+
+#    try:
+#        cosyvoice = CosyVoice(args.model_dir)
+#        model_versions = 'V1'
+#    except Exception:
+#        try:
+#            cosyvoice = CosyVoice2(args.model_dir, fp16=False if device_str == 'cpu' else True)
+#            model_versions = 'V2'
+#        except Exception:
+#            raise TypeError('no valid model_type!')
 
     sft_spk = refresh_sft_spk()['choices']
     reference_wavs = refresh_prompt_wav()['choices']
@@ -726,5 +678,5 @@ if __name__ == '__main__':
     else:
         asr_model_dir = args.asr_model_dir
     logging.info(f"device=f'{device_str}'\nasr_model_dir={asr_model_dir}")
-    asr_model = AutoModel( model=asr_model_dir, disable_update=True, log_level=args.log_level, device='cpu') #device_str)
+    asr_model = funasr_AutoModel( model=asr_model_dir, disable_update=True, log_level=args.log_level, device='cpu') #device_str)
     main()
